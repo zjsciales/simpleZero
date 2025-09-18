@@ -356,8 +356,25 @@ def generate_prompt():
         dte = data.get('dte', 0)
         ticker = data.get('ticker', 'SPY')
         
-        # Generate the prompt that would be sent to Grok
-        prompt = f"""Analyze the current market conditions for {ticker} with {dte}DTE focus:
+        # Generate the prompt using our enhanced comprehensive analysis system
+        try:
+            # Import our enhanced analysis functions
+            from grok import get_comprehensive_market_data, format_market_analysis_prompt_v7_comprehensive
+            
+            print(f"🎯 Generating comprehensive analysis for {ticker} with {dte}DTE...")
+            
+            # Get comprehensive market data using our enhanced system
+            market_data = get_comprehensive_market_data(ticker, dte)
+            
+            # Generate prompt using our enhanced formatting
+            prompt = format_market_analysis_prompt_v7_comprehensive(market_data, ticker, dte)
+            
+            print(f"✅ Generated enhanced prompt with {len(prompt)} characters of comprehensive analysis")
+            
+        except Exception as analysis_error:
+            print(f"⚠️  Enhanced analysis failed, using fallback: {analysis_error}")
+            # Fallback to basic prompt if enhanced analysis fails
+            prompt = f"""Analyze the current market conditions for {ticker} with {dte}DTE focus:
 
 Market Analysis Request:
 - Ticker: {ticker}
@@ -365,34 +382,7 @@ Market Analysis Request:
 - Analysis Type: {"Intraday scalping" if dte == 0 else f"{dte}-day swing trading"}
 - Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S EST')}
 
-Please provide a comprehensive analysis including:
-
-1. **Current Market Assessment**
-   - Overall market sentiment and trend direction
-   - Key technical levels (support/resistance)
-   - Current price action and momentum indicators
-
-2. **Technical Analysis**
-   - RSI conditions and overbought/oversold levels
-   - Moving average positioning and trends
-   - Bollinger Band analysis and volatility assessment
-
-3. **Options Trading Opportunities**
-   - Optimal strike price recommendations for {dte}DTE
-   - Credit spread opportunities (put/call spreads)
-   - Risk/reward ratios for recommended trades
-
-4. **Risk Management**
-   - Position sizing recommendations
-   - Stop-loss levels and profit targets
-   - Market conditions to avoid trading
-
-5. **Actionable Insights**
-   - Specific entry and exit strategies
-   - Time-of-day considerations for {dte}DTE trading
-   - Market catalysts to watch
-
-Focus on actionable, specific recommendations for {ticker} {dte}DTE trading with current market conditions."""
+Please provide comprehensive market analysis with technical indicators, volume analysis, and options chain insights."""
 
         return jsonify({
             'success': True,
