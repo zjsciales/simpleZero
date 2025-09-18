@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 SPY Trading Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .nav-section {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 20px;
+        }
+
+        .auth-buttons {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .auth-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .login-btn {
+            background: #27ae60;
+            color: white;
+        }
+
+        .login-btn:hover {
+            background: #219a52;
+            transform: translateY(-1px);
+        }
+
+        .logout-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .logout-btn:hover {
+            background: #c0392b;
+            transform: translateY(-1px);
+        }
+
+        .auth-status {
+            font-size: 14px;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .refresh-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: #2980b9;
+        }
+
+        .refresh-btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .nav-tab {
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .nav-tab.active, .nav-tab:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .account-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px 30px;
+            margin: 20px 30px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .account-details {
+            display: flex;
+            gap: 40px;
+        }
+
+        .account-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .account-label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .account-value {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .refresh-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e9ecef;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f8f9fa;
+        }
+
+        .section-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .asset-config {
+            grid-column: 1 / -1;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .config-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .config-label {
+            font-size: 12px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+
+        .config-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .config-description {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .select-dropdown {
+            padding: 8px 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .risk-indicators {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .risk-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .risk-low {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .risk-medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .risk-high {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .trading-assistant {
+            border-left: 4px solid #3498db;
+        }
+
+        .automated-trading {
+            border-left: 4px solid #27ae60;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #219a52;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #dee2e6;
+            color: #6c757d;
+        }
+
+        .btn-outline:hover {
+            background: #f8f9fa;
+        }
+
+        .loading {
+            color: #6c757d;
+            font-style: italic;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-active {
+            background: #27ae60;
+        }
+
+        .status-inactive {
+            background: #e74c3c;
+        }
+
+        .status-warning {
+            background: #f39c12;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">🎯 SPY Trading Dashboard</div>
+            <div class="nav-section">
+                <div class="nav-tabs">
+                    <a href="/dashboard" class="nav-tab active">🏠 Home Dashboard</a>
+                    <a href="/market-data" class="nav-tab">📊 Market Overview</a>
+                    <a href="/status" class="nav-tab">📈 Status</a>
+                </div>
+                <div class="auth-buttons">
+                    <button id="loginBtn" class="auth-btn login-btn" onclick="login()" style="display: none;">🔑 Login</button>
+                    <button id="logoutBtn" class="auth-btn logout-btn" onclick="logout()">🚪 Logout</button>
+                    <span id="authStatus" class="auth-status">🟢 Authenticated</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="account-info">
+            <div class="account-details">
+                <div class="account-item">
+                    <span class="account-label">Account</span>
+                    <span class="account-value">Paper Trading Active</span>
+                </div>
+                <div class="account-item">
+                    <span class="account-label">Buying Power</span>
+                    <span class="account-value">$199,854.36</span>
+                </div>
+                <div class="account-item">
+                    <span class="account-label">Portfolio Value</span>
+                    <span class="account-value">$99,927.18</span>
+                </div>
+            </div>
+            <button class="refresh-btn" onclick="location.reload()">🔄 Refresh</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="section asset-config">
+            <div class="section-header">
+                <span class="section-icon">📋</span>
+                <span class="section-title">Asset & Strategy Configuration</span>
+            </div>
+            
+            <div class="config-grid">
+                <div class="config-item">
+                    <span class="config-label">Select Asset</span>
+                    <select class="select-dropdown">
+                        <option>SPY - SPDR S&P 500 ETF</option>
+                    </select>
+                    <span class="config-description">Available trading assets</span>
+                </div>
+                
+                <div class="config-item">
+                    <span class="config-label">Name</span>
+                    <span class="config-value">SPDR S&P 500 ETF</span>
+                    <span class="config-label" style="margin-top: 10px;">Sector</span>
+                    <span class="config-value">Broad Market</span>
+                </div>
+                
+                <div class="config-item">
+                    <span class="config-label">Current Price</span>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <span class="config-value" id="current-price">$Click Refresh</span>
+                        <button onclick="loadMarketData()" class="refresh-btn">🔄 Refresh</button>
+                        <button onclick="testOptionsChain()" class="refresh-btn" style="background: #9b59b6;">⚙️ Test Options</button>
+                        <button onclick="testTradingRange()" class="refresh-btn" style="background: #e67e22;">📊 Test Range</button>
+                        <button onclick="testOptionsByDate()" class="refresh-btn" style="background: #27ae60;">📅 Test Date</button>
+                    </div>
+                    <span class="config-label" style="margin-top: 10px;">Price Change</span>
+                    <span class="config-value" id="price-change">Click Refresh</span>
+                </div>
+            </div>
+
+            <div class="config-grid">
+                <div class="config-item">
+                    <span class="config-label">Select DTE</span>
+                    <select class="select-dropdown">
+                        <option>10TE (Fri 09-19-25)</option>
+                    </select>
+                    <span class="config-description">Real-time DTE discovery</span>
+                </div>
+                
+                <div class="config-item">
+                    <span class="config-label">Current Configuration</span>
+                    <span class="config-value">10TE (Fri 09-19-25)</span>
+                    <div class="risk-indicators">
+                        <span class="risk-badge risk-low">PDT Risk</span>
+                        <span class="risk-badge risk-high">Risk: Medium-High</span>
+                    </div>
+                </div>
+                
+                <div class="config-item">
+                    <span class="config-label">Strategies</span>
+                    <span class="config-value">Call/Put Spreads, Iron Condor</span>
+                    <span class="config-label" style="margin-top: 5px;">Time Decay</span>
+                    <span class="config-value">Fast</span>
+                    <span class="config-description">Good balance of premium and risk</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="section trading-assistant">
+            <div class="section-header">
+                <span class="section-icon">🤖</span>
+                <span class="section-title">AI Trading Assistant</span>
+            </div>
+            <p style="margin-bottom: 20px; color: #6c757d;">
+                Intelligent market analysis and strategy recommendations based on current conditions.
+            </p>
+            <a href="/analyze-market" class="btn btn-primary">🔍 Analyze Market</a>
+        </div>
+
+        <div class="section automated-trading">
+            <div class="section-header">
+                <span class="section-icon">⚡</span>
+                <span class="section-title">Automated Trading</span>
+            </div>
+            <div style="margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <span class="status-indicator status-inactive"></span>
+                    <span>Status: Inactive</span>
+                </div>
+                <p style="color: #6c757d; font-size: 14px;">
+                    Automated strategies are currently disabled. Complete authentication to enable.
+                </p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button class="btn btn-outline" onclick="location.reload()">🔄 Refresh</button>
+                <button class="btn btn-success">▶️ Start</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load market data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadMarketData();
+        });
+
+        let isLoadingMarketData = false;
+
+        async function loadMarketData() {
+            // Prevent multiple concurrent calls
+            if (isLoadingMarketData) {
+                console.log('Market data already loading, skipping...');
+                return;
+            }
+            
+            isLoadingMarketData = true;
+            const refreshBtn = document.querySelector('.refresh-btn');
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = '⏳ Loading...';
+            }
+            
+            try {
+                console.log('Loading market data...');
+                const response = await fetch('/api/market-data');
+                console.log('Market data response:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Market data received:', data);
+                    document.getElementById('current-price').textContent = `$${data.current_price.toFixed(2)}`;
+                    document.getElementById('price-change').textContent = `${data.percent_change > 0 ? '+' : ''}${data.percent_change.toFixed(2)}%`;
+                    document.getElementById('price-change').style.color = data.percent_change >= 0 ? '#27ae60' : '#e74c3c';
+                } else if (response.status === 401) {
+                    console.log('Authentication required');
+                    document.getElementById('current-price').textContent = 'Authentication Required';
+                    document.getElementById('price-change').textContent = 'Login to view';
+                    updateAuthStatus(false);
+                } else {
+                    console.log('Market data unavailable:', response.status);
+                    document.getElementById('current-price').textContent = 'Data Unavailable';
+                    document.getElementById('price-change').textContent = 'Try again later';
+                }
+            } catch (error) {
+                console.error('Error loading market data:', error);
+                document.getElementById('current-price').textContent = 'Error loading';
+                document.getElementById('price-change').textContent = 'Check connection';
+            } finally {
+                isLoadingMarketData = false;
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = '🔄 Refresh';
+                }
+            }
+        }
+
+        // Test options chain function
+        async function testOptionsChain() {
+            console.log('Testing options chain...');
+            try {
+                const response = await fetch('/api/options-chain?ticker=SPY&limit=10&dte_only=true');
+                console.log('Options chain response:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Options chain data received:', data);
+                    
+                    // Log the first few options for testing
+                    if (data.options && data.options.length > 0) {
+                        console.log(`Found ${data.options_count} options:`);
+                        data.options.slice(0, 5).forEach((option, index) => {
+                            console.log(`  ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - Type: ${option.option_type} - Bid: $${option.bid} - Ask: $${option.ask}`);
+                        });
+                        alert(`✅ Options chain test successful! Found ${data.options_count} options. Check console for details.`);
+                    } else {
+                        console.log('No options found in response');
+                        alert('⚠️ Options chain response received but no options found. Check console for details.');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    console.error('Options chain error:', errorData);
+                    alert(`❌ Options chain test failed: ${errorData.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error testing options chain:', error);
+                alert(`❌ Error testing options chain: ${error.message}`);
+            }
+        }
+
+        // Test trading range function
+        async function testTradingRange() {
+            console.log('Testing trading range...');
+            try {
+                const response = await fetch('/api/trading-range?ticker=SPY&dte=0');
+                console.log('Trading range response:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Trading range data received:', data);
+                    
+                    if (data.ticker) {
+                        console.log(`Trading Range for ${data.ticker}:`);
+                        console.log(`  Current Price: $${data.current}`);
+                        console.log(`  Range: ${data.range_percent}% (±$${data.range_dollars})`);
+                        console.log(`  Strike Range: $${data.min} - $${data.max}`);
+                        console.log(`  Strike Increment: $${data.increment}`);
+                        console.log(`  Number of Strikes: ${data.strike_count}`);
+                        if (data.dte !== null) {
+                            console.log(`  DTE: ${data.dte} days`);
+                        }
+                        
+                        alert(`✅ Trading range calculated! 
+Current: $${data.current}
+Range: $${data.min} - $${data.max} (${data.range_percent}%)
+Strikes: ${data.strike_count} options
+Check console for details.`);
+                    } else {
+                        console.log('No trading range data in response');
+                        alert('⚠️ Trading range response received but no data found. Check console for details.');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    console.error('Trading range error:', errorData);
+                    alert(`❌ Trading range test failed: ${errorData.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error testing trading range:', error);
+                alert(`❌ Error testing trading range: ${error.message}`);
+            }
+        }
+
+        // Test options by date function
+        async function testOptionsByDate() {
+            console.log('Testing options by date...');
+            try {
+                // Use today's date for 0DTE testing
+                const today = new Date().toISOString().split('T')[0];
+                const response = await fetch(`/api/options-by-date?ticker=SPY&expiration_date=${today}`);
+                console.log('Options by date response:', response.status);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Options by date data received:', data);
+                    
+                    if (data.success && data.options_count > 0) {
+                        console.log(`Found ${data.options_count} options for ${data.ticker} expiring on ${data.expiration_date}:`);
+                        
+                        // Group by option type for better display
+                        const calls = data.options.filter(opt => opt.option_type === 'Call' || opt.option_type === 'C');
+                        const puts = data.options.filter(opt => opt.option_type === 'Put' || opt.option_type === 'P');
+                        
+                        console.log(`  Calls: ${calls.length}, Puts: ${puts.length}`);
+                        
+                        // Show first few calls and puts
+                        if (calls.length > 0) {
+                            console.log('First few calls:');
+                            calls.slice(0, 3).forEach((option, index) => {
+                                console.log(`    ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - DTE: ${option.days_to_expiration}`);
+                            });
+                        }
+                        
+                        if (puts.length > 0) {
+                            console.log('First few puts:');
+                            puts.slice(0, 3).forEach((option, index) => {
+                                console.log(`    ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - DTE: ${option.days_to_expiration}`);
+                            });
+                        }
+                        
+                        alert(`✅ Options by date test successful! 
+Found ${data.options_count} options for ${data.ticker}
+Expiring: ${data.expiration_date}
+Calls: ${calls.length}, Puts: ${puts.length}
+Check console for details.`);
+                    } else if (data.success && data.options_count === 0) {
+                        console.log(`No options found for ${data.ticker} expiring on ${data.expiration_date}`);
+                        if (data.available_dates && data.available_dates.length > 0) {
+                            console.log('Available expiration dates:', data.available_dates);
+                            const nearestDate = data.available_dates[0];
+                            alert(`⚠️ No options found expiring on ${data.expiration_date}
+
+Available expiration dates: ${data.available_dates.slice(0, 3).join(', ')}
+
+Try testing with: ${nearestDate}`);
+                        } else {
+                            alert(`⚠️ No options found for ${data.expiration_date}. Try a different date or check if market is open.`);
+                        }
+                    } else {
+                        console.log('Unexpected response format:', data);
+                        alert(`⚠️ Unexpected response format. Check console for details.`);
+                    }
+                } else {
+                    const errorData = await response.json();
+                    console.error('Options by date error:', errorData);
+                    alert(`❌ Options by date test failed: ${errorData.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error testing options by date:', error);
+                alert(`❌ Error testing options by date: ${error.message}`);
+            }
+        }
+
+        // Authentication functions
+        function login() {
+            // Redirect to OAuth2 login
+            window.location.href = '/login';
+        }
+
+        function logout() {
+            // Call logout endpoint
+            fetch('/logout', {
+                method: 'POST',
+                credentials: 'same-origin'
+            }).then(() => {
+                updateAuthStatus(false);
+                // Optionally redirect to login page
+                window.location.href = '/';
+            }).catch(error => {
+                console.error('Logout error:', error);
+                // Force redirect even if logout call fails
+                window.location.href = '/';
+            });
+        }
+
+        function updateAuthStatus(isAuthenticated) {
+            const loginBtn = document.getElementById('loginBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const authStatus = document.getElementById('authStatus');
+
+            if (isAuthenticated) {
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                authStatus.textContent = '🟢 Authenticated';
+                authStatus.style.color = '#27ae60';
+            } else {
+                loginBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                authStatus.textContent = '🔴 Not Authenticated';
+                authStatus.style.color = '#e74c3c';
+            }
+        }
+
+        // Check authentication status when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Only check authentication status, don't automatically load market data
+            console.log('Page loaded, checking authentication...');
+            
+            // Check if we have authentication by trying to load market data
+            fetch('/api/market-data')
+                .then(response => {
+                    console.log('Auth check response:', response.status);
+                    const isAuthenticated = response.ok && response.status !== 401;
+                    updateAuthStatus(isAuthenticated);
+                    
+                    // Only load market data if authenticated
+                    if (isAuthenticated) {
+                        console.log('Authenticated, loading market data...');
+                        loadMarketData();
+                    } else {
+                        console.log('Not authenticated, skipping market data load');
+                    }
+                })
+                .catch(error => {
+                    console.error('Auth check error:', error);
+                    updateAuthStatus(false);
+                });
+        });
+
+        // Auto-refresh market data every 30 seconds (temporarily disabled for debugging)
+        // setInterval(loadMarketData, 30000);
+    </script>
+</body>
+</html>

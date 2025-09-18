@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - SPY Trading Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+        }
+
+        .login-header {
+            background: #2c3e50;
+            color: white;
+            padding: 30px 40px;
+            text-align: center;
+        }
+
+        .login-header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .login-header p {
+            color: #bdc3c7;
+            font-size: 14px;
+        }
+
+        .login-body {
+            padding: 40px;
+            text-align: center;
+        }
+
+        .spy-logo {
+            background: #e74c3c;
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 0 auto 20px;
+        }
+
+        .login-description {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .login-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+
+        .login-btn:hover {
+            background: #2980b9;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+        }
+
+        .features {
+            margin-top: 30px;
+            text-align: left;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            color: #555;
+            font-size: 14px;
+        }
+
+        .feature-icon {
+            background: #27ae60;
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 12px;
+            font-size: 12px;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 12px;
+            border-top: 1px solid #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>🎯 SPY Trading Dashboard</h1>
+            <p>Professional Trading Interface</p>
+        </div>
+        
+        <div class="login-body">
+            <div class="spy-logo">SPY</div>
+            
+            <h2 style="margin-bottom: 10px; color: #2c3e50;">Welcome Back</h2>
+            <p class="login-description">
+                Connect your TastyTrade account to access real-time market data, 
+                advanced analytics, and automated trading strategies.
+            </p>
+            
+            <a href="/login" class="login-btn">
+                🔐 Login with TastyTrade
+            </a>
+            
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">✓</div>
+                    Real-time SPY market data
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">✓</div>
+                    Options trading strategies
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">✓</div>
+                    Risk management tools
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">✓</div>
+                    Automated trading assistant
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Powered by TastyTrade API • Secure OAuth2 Authentication
+        </div>
+    </div>
+</body>
+</html>
