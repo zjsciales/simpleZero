@@ -13,6 +13,41 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # =============================================================================
+# ENVIRONMENT DETECTION
+# =============================================================================
+
+# Detect environment - Railway sets RAILWAY_ENVIRONMENT, we can also check other indicators
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')  # Set explicitly or default to development
+IS_PRODUCTION = (
+    os.getenv('RAILWAY_ENVIRONMENT') is not None or  # Railway deployment
+    os.getenv('ENVIRONMENT') == 'production' or       # Explicit production setting
+    os.getenv('PORT') is not None                     # Railway sets PORT
+)
+
+# =============================================================================
+# ENVIRONMENT-SPECIFIC SETTINGS
+# =============================================================================
+
+if IS_PRODUCTION:
+    # Production settings (Railway/algaebot.com)
+    BASE_URL = "https://algaebot.com"
+    TT_REDIRECT_URI = f"{BASE_URL}/tt"  # Production callback URL
+    FLASK_ENV = "production"
+    DEBUG = False
+    PORT = int(os.getenv('PORT', 5000))  # Railway assigns PORT
+else:
+    # Development settings (localhost)
+    BASE_URL = "https://127.0.0.1:5001"
+    TT_REDIRECT_URI = os.getenv('TT_REDIRECT_URI', f"{BASE_URL}/zscialespersonal")  # Dev callback URL
+    FLASK_ENV = "development"
+    DEBUG = True
+    PORT = 5001
+
+print(f"🌍 Environment: {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'}")
+print(f"🔗 Base URL: {BASE_URL}")
+print(f"🔄 TT Redirect URI: {TT_REDIRECT_URI}")
+
+# =============================================================================
 # API CREDENTIALS
 # =============================================================================
 
@@ -316,10 +351,12 @@ def validate_config():
     errors = []
     
     # Check API keys
-    if not ALPACA_API_KEY:
-        errors.append("ALPACA_API_KEY not found in environment variables")
-    if not ALPACA_SECRET_KEY:
-        errors.append("ALPACA_SECRET_KEY not found in environment variables")
+    if not TT_API_KEY:
+        errors.append("TT_API_KEY not found in environment variables")
+    if not TT_API_SECRET:
+        errors.append("TT_API_SECRET not found in environment variables")
+    if not XAI_API_KEY:
+        errors.append("XAI_API_KEY not found in environment variables")
     
     # Check risk parameters
     if MAX_DAILY_LOSS <= 0:
