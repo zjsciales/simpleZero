@@ -319,17 +319,6 @@ def api_options_by_date():
         print(f"💥 Exception in options chain by date retrieval: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/analyze-market')
-def analyze_market():
-    """Grok Market Analysis page"""
-    token = session.get('access_token')
-    if not token:
-        return redirect('/')
-    
-    # Ensure tt.py has the token
-    set_access_token(token)
-    return render_template('analyze_market.html')
-
 @app.route('/api/generate-prompt', methods=['POST'])
 def generate_prompt():
     """API endpoint to generate and preview the Grok prompt"""

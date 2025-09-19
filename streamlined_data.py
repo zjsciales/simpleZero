@@ -327,13 +327,12 @@ def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
         
         data = response.json()
         
-        print(f"🔍 Raw compact response structure: {type(data)}")
-        print(f"🔍 Response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        print(f"🔍 Checking compact response structure...")
+        print(f"🔍 Response keys available: {len(list(data.keys())) if isinstance(data, dict) else 0}")
         
         if 'data' in data and 'items' in data['data'] and data['data']['items']:
             raw_items = data['data']['items']
-            print(f"📋 Raw items type: {type(raw_items)}")
-            print(f"📋 First few raw items: {raw_items[:3] if raw_items else 'None'}")
+            print(f"📋 Found {len(raw_items) if raw_items else 0} option items")
             
             # Extract symbols from the data structure
             symbols = []
@@ -559,10 +558,10 @@ def get_options_market_data(option_symbols: List[str]) -> Dict[str, Dict]:
                 response.raise_for_status()
                 data = response.json()
                 
-                if i < 3:  # Show raw data for first 3 calls
-                    print(f"📄 Raw response: {data}")
+                if i < 3:  # Log status for first 3 calls
+                    print(f"� Processing option {i+1}: Status {response.status_code}")
                     if 'data' in data and data['data']:
-                        print(f"📄 Data keys: {list(data['data'].keys())}")
+                        print(f"� Data structure contains expected fields")
                 
                 # Process the individual response
                 if 'data' in data and data['data']:
@@ -767,6 +766,6 @@ if __name__ == "__main__":
     
     if data['success']:
         print("\n✅ Test successful!")
-        print(json.dumps(data, indent=2, default=str)[:1000] + "...")
+        print(f"📊 Summary: {len(data.get('options_chain', {}).get('calls', []))} calls, {len(data.get('options_chain', {}).get('puts', []))} puts")
     else:
         print(f"\n❌ Test failed: {data.get('error', 'Unknown error')}")
