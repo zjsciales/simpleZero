@@ -38,14 +38,16 @@ ENVIRONMENT=production
 
 ### API Keys
 ```
-XAI_API_KEY=xai-OSTgo9AT2b1j3Oh19MgA18RsJ3gFebDei6kViUUjXkm3gBTTaBh8zTIettqpkN7ivg2vuUrEhRtcgCka
-TT_API_KEY_SANDBOX=dbc7d5fd-02a2-4b2e-a91b-31b920a73685
-TT_API_SECRET_SANDBOX=29a0ae1058ed66ec9423ef191a3b4cd31f43353c
+XAI_API_KEY=your_xai_api_key_here
+TT_API_KEY_SANDBOX=your_tastytrade_sandbox_api_key
+TT_API_SECRET_SANDBOX=your_tastytrade_sandbox_secret
 TT_SANDBOX_BASE_URL=https://api.cert.tastyworks.com
-TT_ACCOUNT_NUMBER_SANDBOX=5WZ98315
-TT_USERNAME_SANDBOX=zscialesSandboxUser
-TT_PASSWORD_SANDBOX=Pw1f!jqW$%kt&Uzo
+TT_ACCOUNT_NUMBER_SANDBOX=your_sandbox_account_number
+TT_USERNAME_SANDBOX=your_sandbox_username
+TT_PASSWORD_SANDBOX=your_sandbox_password
 ```
+
+> **Note**: Copy the actual values from your local `.env` file. Never commit API keys to Git!
 
 ### Production TastyTrade Settings (when ready for live)
 ```
