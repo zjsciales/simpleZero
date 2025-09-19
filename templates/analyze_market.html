@@ -258,6 +258,9 @@
                 <button onclick="analyzeMarket()" id="analyze-btn" class="btn btn-primary">
                     🚀 Run Grok Analysis
                 </button>
+                <button onclick="debugData()" id="debug-btn" class="btn btn-primary" style="background: #f39c12;">
+                    🧪 Debug Data Collection
+                </button>
             </div>
             
             <div id="analysis-result" class="analysis-result" style="display: none;">
@@ -370,6 +373,109 @@
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = '🚀 Run Grok Analysis';
             }
+        }
+
+        async function debugData() {
+            const ticker = document.getElementById('ticker').value.trim();
+            const dte = document.getElementById('dte').value.trim();
+            const resultDiv = document.getElementById('analysis-result');
+            const debugBtn = document.getElementById('debug-btn');
+            
+            if (!ticker || !dte) {
+                alert('Please enter both ticker and DTE');
+                return;
+            }
+            
+            try {
+                debugBtn.disabled = true;
+                debugBtn.textContent = 'Debugging...';
+                
+                // Show result div and add loading message
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Testing data collection for ' + ticker + ' ' + dte + 'DTE...</div>';
+                
+                const response = await fetch(`/api/debug-data?ticker=${ticker}&dte=${dte}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Format the debug results nicely
+                    let debugHtml = `
+                        <div class="debug-results">
+                            <h3>🧪 Debug Results for ${ticker} ${dte}DTE</h3>
+                            <div style="margin-bottom: 20px;">
+                                <strong>Summary:</strong> ${data.summary.success_rate} tests passed
+                            </div>
+                    `;
+                    
+                    // Add each test result
+                    for (const [testName, testResult] of Object.entries(data.tests)) {
+                        const status = testResult.success ? '✅' : '❌';
+                        const testTitle = formatTestName(testName);
+                        
+                        debugHtml += `
+                            <div style="margin: 15px 0; padding: 15px; background: ${testResult.success ? '#e8f5e8' : '#fde8e8'}; border-radius: 8px;">
+                                <h4>${status} ${testTitle}</h4>
+                        `;
+                        
+                        if (testResult.error) {
+                            debugHtml += `<p style="color: #e74c3c;"><strong>Error:</strong> ${testResult.error}</p>`;
+                        }
+                        
+                        // Add specific metrics
+                        if (testName === 'global_markets' || testName === 'spy_giants') {
+                            debugHtml += `<p><strong>Symbols Found:</strong> ${testResult.count || 0}</p>`;
+                        } else if (testName === 'ticker_data') {
+                            debugHtml += `<p><strong>Data Points:</strong> ${testResult.data_points || 0}, <strong>Current Price:</strong> $${testResult.current_price || 0}</p>`;
+                        } else if (testName === 'options_chain') {
+                            debugHtml += `<p><strong>Total Options:</strong> ${testResult.total_options || 0} (${testResult.calls || 0} calls, ${testResult.puts || 0} puts)</p>`;
+                        }
+                        
+                        // Show truncated data
+                        const dataStr = JSON.stringify(testResult.data, null, 2);
+                        const truncatedData = dataStr.length > 500 ? dataStr.substring(0, 500) + '\n... (truncated)' : dataStr;
+                        
+                        debugHtml += `
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; font-weight: bold;">View Raw Data</summary>
+                                <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; margin-top: 10px; font-size: 12px;">${truncatedData}</pre>
+                            </details>
+                        `;
+                        
+                        debugHtml += '</div>';
+                    }
+                    
+                    debugHtml += '</div>';
+                    resultDiv.innerHTML = debugHtml;
+                } else {
+                    throw new Error(data.error || 'Debug failed');
+                }
+            } catch (error) {
+                console.error('Error debugging data:', error);
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ Debug Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                debugBtn.disabled = false;
+                debugBtn.textContent = '🧪 Debug Data Collection';
+            }
+        }
+
+        function formatTestName(testName) {
+            const titles = {
+                'global_markets': '🌍 Global Markets',
+                'spy_giants': '🏢 SPY Giants',
+                'ticker_data': '📊 Ticker Data',
+                'options_chain': '⚙️ Options Chain'
+            };
+            return titles[testName] || testName;
         }
 
         // Initialize prompt on page load
