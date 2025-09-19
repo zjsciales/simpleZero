@@ -11,7 +11,7 @@ import logging
 import os
 import re
 import requests
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 import pytz
 import config
@@ -36,7 +36,43 @@ from tt import (
     get_enhanced_options_chain_data,
     get_spy_options_chain
 )
-from dte_manager import get_current_dte, dte_manager
+# Try to import dte_manager, but make it optional
+try:
+    from dte_manager import get_current_dte, dte_manager
+    DTE_MANAGER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  DTE manager not available (missing alpaca dependency): {e}")
+    DTE_MANAGER_AVAILABLE = False
+    # Create simple fallback functions
+    def get_current_dte():
+        return 1  # Default to 1DTE
+    
+    class SimpleDTEManager:
+        def get_dte_config(self, dte):
+            return {
+                'period': '1d' if dte <= 1 else '5d',
+                'interval': '1m' if dte <= 1 else '1h',
+                'analysis_period': '5d',
+                'data_points': 30
+            }
+        
+        def get_dte_summary(self):
+            return {
+                'current_dte': 1,
+                'display_name': '1DTE',
+                'target_expiration': datetime.now().strftime('%Y-%m-%d'),
+                'risk_multiplier': 1.0,
+                'data_config': self.get_dte_config(1),
+                'available_options': [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
+            }
+        
+        def get_current_dte(self):
+            return 1
+        
+        def get_dte_display_name(self, dte):
+            return f"{dte}DTE"
+    
+    dte_manager = SimpleDTEManager()
 
 # Load environment variables
 load_dotenv()
@@ -122,7 +158,7 @@ class GrokAnalyzer:
 
 def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ticker=None):
     """
-    Gather all available market data for comprehensive analysis (DTE-aware v7 comprehensive)
+    Gather all available market data for comprehensive analysis using streamlined TastyTrade data
     
     Parameters:
     include_full_options_chain: If True, includes complete options chain for specified DTE
@@ -132,11 +168,9 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
     Returns:
     Dictionary containing all market data components optimized for the specified DTE
     """
-    from dte_manager import dte_manager
-    
     # Use current DTE if none specified, but allow override
     if dte is None:
-        dte = dte_manager.get_current_dte()
+        dte = get_current_dte()
     
     # Use current ticker if none specified    
     if ticker is None:
@@ -144,26 +178,73 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
         
     print(f"🔍 Gathering comprehensive market data for {ticker} {dte}DTE analysis (v7 comprehensive)...")
     
-    # Get DTE-specific configuration for intelligent data gathering
-    dte_manager.current_dte = dte
-    dte_config = dte_manager.get_dte_config(dte)
-    dte_summary = dte_manager.get_dte_summary()
-    
-    # Get current timestamp
-    et_tz = pytz.timezone('America/New_York')
-    current_time = datetime.now(et_tz)
-    
-    data = {
-        'timestamp': {
-            'current_time': current_time.isoformat(),
-            'market_date': current_time.strftime('%Y-%m-%d'),
-            'market_time': current_time.strftime('%H:%M:%S %Z'),
-            'trading_day': current_time.strftime('%A, %B %d, %Y')
-        },
-        'dte': dte,  # Include DTE in data
-        'dte_config': dte_config,  # Include DTE configuration
-        'dte_summary': dte_summary,  # Include DTE summary with display info
-        'ticker': ticker  # Include current ticker
+    try:
+        # Use our streamlined data collection approach
+        from streamlined_data import get_streamlined_market_data
+        
+        print(f"📊 Using streamlined TastyTrade data collection...")
+        streamlined_data = get_streamlined_market_data(ticker, dte)
+        
+        if not streamlined_data.get('success'):
+            print(f"❌ Streamlined data collection failed")
+            return None
+        
+        # Convert streamlined data to the format expected by the rest of the system
+        data = {
+            'timestamp': streamlined_data['timestamp'],
+            'dte': dte,
+            'dte_config': {
+                'period': '1d' if dte <= 1 else '5d',
+                'interval': '1m' if dte <= 1 else '1h',
+                'analysis_period': '5d',
+                'data_points': 30
+            },
+            'dte_summary': dte_manager.get_dte_summary() if DTE_MANAGER_AVAILABLE else {
+                'current_dte': dte,
+                'display_name': f'{dte}DTE',
+                'target_expiration': (datetime.now() + timedelta(days=dte)).strftime('%Y-%m-%d'),
+                'risk_multiplier': 1.0,
+                'data_config': {
+                    'period': '1d' if dte <= 1 else '5d',
+                    'interval': '1m' if dte <= 1 else '1h',
+                    'analysis_period': '5d',
+                    'data_points': 30
+                },
+                'available_options': [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]
+            },
+            'ticker': ticker,
+            'global_markets': streamlined_data['global_markets'],
+            'spy_giants': streamlined_data.get('spy_giants', {}),
+            'market_data': {
+                'current_price': streamlined_data['ticker_data'].get('current_price', 0.0),
+                'price_change': streamlined_data['ticker_data'].get('price_change', 0.0),
+                'price_change_pct': streamlined_data['ticker_data'].get('price_change_pct', 0.0),
+                'volume': streamlined_data['ticker_data'].get('volume', 0),
+                'timestamp': streamlined_data['ticker_data'].get('timestamp'),
+                'high': streamlined_data['ticker_data'].get('period_summary', {}).get('high', 0.0),
+                'low': streamlined_data['ticker_data'].get('period_summary', {}).get('low', 0.0),
+                'open': streamlined_data['ticker_data'].get('period_summary', {}).get('open', 0.0),
+                'vwap': streamlined_data['ticker_data'].get('period_summary', {}).get('vwap', 0.0)
+            },
+            'options_chain': streamlined_data['options_chain'],
+            'technical_indicators': streamlined_data['ticker_data'].get('technical_indicators', {}),
+            'source': 'tastytrade_streamlined'
+        }
+        
+        print(f"✅ Successfully gathered comprehensive market data using streamlined approach")
+        print(f"📊 Data summary:")
+        print(f"   - Global markets: {len(data['global_markets'])} symbols")
+        print(f"   - SPY giants: {len(data['spy_giants'])} symbols")
+        print(f"   - Current price: ${data['market_data']['current_price']:.2f}")
+        print(f"   - Options: {data['options_chain'].get('total_options', 0)} contracts")
+        
+        return data
+        
+    except Exception as e:
+        print(f"❌ Error in streamlined comprehensive data collection: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
     }
     
     # 1. Global Market Overview (always useful regardless of DTE)
@@ -1129,9 +1210,8 @@ def main():
         return
     
     # Get current DTE (can be overridden by user in UI)
-    from dte_manager import dte_manager
-    current_dte = dte_manager.get_current_dte()
-    dte_display = dte_manager.get_dte_display_name(current_dte)
+    current_dte = get_current_dte()
+    dte_display = f"{current_dte}DTE"
     
     print(f"📅 Analyzing for: {dte_display}")
     
@@ -2289,11 +2369,12 @@ class AutomatedTrader:
             if not conditions:
                 return {'can_enter': True, 'reason': 'No conditions specified'}
             
-            # Get current market data for validation
-            import yfinance as yf
-            ticker_obj = yf.Ticker(self.parser.ticker)
-            current_data = ticker_obj.history(period="1d", interval="1m").iloc[-1]
-            current_price = current_data['Close']
+            # Get current market data for validation using TastyTrade
+            from tt import get_current_price
+            current_price = get_current_price(self.parser.ticker)
+            
+            if not current_price:
+                return {'can_enter': False, 'reason': f'Could not get current price for {self.parser.ticker}'}
             
             # Check ticker price conditions
             if f'{self.parser.ticker.lower()}_price_above' in conditions and conditions[f'{self.parser.ticker.lower()}_price_above']:
