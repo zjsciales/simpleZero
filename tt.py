@@ -1277,7 +1277,14 @@ def get_options_chain(ticker=None, limit=50, feed='indicative', dte_only=True, d
                 for option in options_items:
                     expiration_date = option.get('expiration-date')
                     option_type_data = option.get('option-type', '')
-                    strike_price = option.get('strike-price', 0)
+                    strike_price_raw = option.get('strike-price', 0)
+                    
+                    # Convert strike price to float for comparison
+                    try:
+                        strike_price = float(strike_price_raw)
+                    except (ValueError, TypeError):
+                        print(f"⚠️ Invalid strike price format: {strike_price_raw}")
+                        continue
                     
                     # Apply date filter
                     if target_str and expiration_date != target_str:
@@ -1356,7 +1363,14 @@ def get_options_chain(ticker=None, limit=50, feed='indicative', dte_only=True, d
                             if option.get('expiration-date') == nearest_expiration:
                                 expiration_date = option.get('expiration-date')
                                 option_type_data = option.get('option-type', '')
-                                strike_price = option.get('strike-price', 0)
+                                strike_price_raw = option.get('strike-price', 0)
+                                
+                                # Convert strike price to float for comparison
+                                try:
+                                    strike_price = float(strike_price_raw)
+                                except (ValueError, TypeError):
+                                    print(f"⚠️ Invalid strike price format: {strike_price_raw}")
+                                    continue
                                 
                                 # Apply other filters (not date filter)
                                 if option_type and option_type_data.lower() != option_type.lower():

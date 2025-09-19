@@ -245,7 +245,26 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
         import traceback
         traceback.print_exc()
         return None
-    }
+
+def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
+    """
+    Enhanced comprehensive market data collection using streamlined TastyTrade-only approach
+    """
+    data = {}
+    
+    try:
+        # Use the streamlined data collection approach
+        from streamlined_data import get_streamlined_market_data
+        
+        data = get_streamlined_market_data(ticker, dte)
+        
+        return data
+        
+    except Exception as e:
+        print(f"❌ Error in streamlined comprehensive data collection: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
     
     # 1. Global Market Overview (always useful regardless of DTE)
     print("📊 Fetching global market overview...")
@@ -735,6 +754,77 @@ def analyze_spread_opportunities(options_df, ticker_range):
     
     return spread_opportunities
 
+def format_compact_options_table(options_list, option_type, current_price):
+    """
+    Format the compact options data into a readable table string
+    
+    Parameters:
+    options_list: List of option dictionaries from compact options chain
+    option_type: 'calls' or 'puts'
+    current_price: Current stock price for reference
+    
+    Returns:
+    Formatted string table of options data
+    """
+    if not options_list:
+        return f"No {option_type} available"
+    
+    # Filter for ATM to OTM options and limit to <50 total contracts as requested
+    filtered_options = []
+    
+    for opt in options_list:
+        strike = float(opt.get('strike', 0))
+        
+        # Filter for ATM to OTM based on option type
+        if option_type == 'calls':
+            # For calls: ATM to OTM (strike >= current_price)
+            if strike >= current_price - 3 and strike <= current_price + 15:
+                filtered_options.append(opt)
+        else:  # puts
+            # For puts: ATM to OTM (strike <= current_price)  
+            if strike <= current_price + 3 and strike >= current_price - 15:
+                filtered_options.append(opt)
+    
+    # Sort by strike and limit to reasonable number for analysis
+    if option_type == 'calls':
+        filtered_options.sort(key=lambda x: float(x.get('strike', 0)))
+    else:
+        filtered_options.sort(key=lambda x: float(x.get('strike', 0)), reverse=True)
+    
+    # Limit to 10 each to get 20 total (under 50 as requested)
+    filtered_options = filtered_options[:10]
+    
+    if not filtered_options:
+        return f"No suitable ATM-OTM {option_type} found"
+    
+    # Create table format
+    table_lines = []
+    table_lines.append("Strike | Bid | Ask | Last | Volume | OI | Spread")
+    table_lines.append("-------|-----|-----|------|--------|----|---------")
+    
+    for opt in filtered_options:
+        strike = float(opt.get('strike', 0))
+        bid = float(opt.get('bid', 0))
+        ask = float(opt.get('ask', 0))
+        last = float(opt.get('last', 0))
+        volume = int(opt.get('volume', 0))
+        open_interest = int(opt.get('open_interest', 0))
+        
+        # Calculate bid-ask spread
+        spread = ask - bid if ask > bid else 0
+        
+        # Format moneyness indicator
+        if option_type == 'calls':
+            moneyness = "ITM" if strike < current_price else "ATM" if abs(strike - current_price) < 1 else "OTM"
+        else:
+            moneyness = "ITM" if strike > current_price else "ATM" if abs(strike - current_price) < 1 else "OTM"
+        
+        table_lines.append(
+            f"${strike:g} | ${bid:.2f} | ${ask:.2f} | ${last:.2f} | {volume:,} | {open_interest:,} | ${spread:.2f} {moneyness}"
+        )
+    
+    return "\n".join(table_lines)
+
 def format_market_analysis_prompt_v7_comprehensive(market_data):
     """
     Format market data into comprehensive DTE-aware v7 prompt for Grok AI analysis
@@ -1021,25 +1111,32 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 
 ## Comprehensive Options Chain Analysis ({dte_display})
 **Market Summary:**
-- Total Options Available: {len(market_data.get('options_analysis', {}).get('options_chain') or [])} contracts
+- Total Options Available: {market_data.get('options_chain', {}).get('total_options', 0)} contracts
 - Strike Range: ${current_price-15:.0f} - ${current_price+15:.0f}
-- Put/Call Volume Ratio: {market_data.get('options_analysis', {}).get('put_call_ratio', 'N/A')}
-- Total Call Volume: {market_data.get('options_analysis', {}).get('total_call_volume', 0)} | Total Put Volume: {market_data.get('options_analysis', {}).get('total_put_volume', 0)}
-- **Flow Pattern:** {market_data.get('options_analysis', {}).get('flow_bias', 'No Flow')} with {market_data.get('options_analysis', {}).get('volume_concentration', 0):.1%} concentration
+- Symbols Available: {market_data.get('options_chain', {}).get('total_symbols_available', 0)} total
+- Symbols After Filtering: {market_data.get('options_chain', {}).get('symbols_filtered', 0)} for {dte_display}
+- Current Price: ${market_data.get('options_chain', {}).get('current_price', current_price):.2f}
+- Target Date: {market_data.get('options_chain', {}).get('target_date', 'N/A')}
 
 **Most Active Call Options:**
 - Strike selection optimized for {dte_display} timeframe
 - Volume leaders indicate market sentiment and liquidity  
 - Focus on ATM and near-the-money strikes for best execution
-- High-volume call strikes: {', '.join([f'${strike:.0f}' for strike in market_data.get('options_analysis', {}).get('high_volume_call_strikes', [])[:5]])}
+- Available Calls: {len(market_data.get('options_chain', {}).get('calls', []))}
 
 **Most Active Put Options:**
 - Downside protection positioning
 - Put volume concentration shows support levels
 - High volume puts indicate institutional hedging activity
-- High-volume put strikes: {', '.join([f'${strike:.0f}' for strike in market_data.get('options_analysis', {}).get('high_volume_put_strikes', [])[:5]])}
-{enhanced_greeks_section}
-{detailed_options_table}
+- Available Puts: {len(market_data.get('options_chain', {}).get('puts', []))}
+
+**Detailed Options Data ({dte_display}):**
+
+**CALL OPTIONS:**
+{format_compact_options_table(market_data.get('options_chain', {}).get('calls', []), 'calls', current_price)}
+
+**PUT OPTIONS:**
+{format_compact_options_table(market_data.get('options_chain', {}).get('puts', []), 'puts', current_price)}
 
 ## Strategy Recommendation Required
 
@@ -1054,7 +1151,6 @@ Choose the OPTIMAL {dte_display} strategy based on:
 **Strategies:**
 - **BULL_PUT_SPREAD:** Bullish/neutral bias, sell put spread below support (${support_level:.0f})
 - **BEAR_CALL_SPREAD:** Bearish/neutral bias, sell call spread above resistance (${resistance_level:.0f})
-- **IRON_CONDOR:** Range-bound, sell both sides around current price (${current_price:.0f})
 
 ## Response Format Required
 Provide your analysis (2-3 sentences considering all factors above) followed by a JSON block with your specific {dte_display} trade recommendation.
@@ -1122,45 +1218,6 @@ Provide your analysis (2-3 sentences considering all factors above) followed by 
     "probability_of_profit": [0_TO_100],
     "reward_risk_ratio": [RATIO],
     "delta": [NEGATIVE_VALUE],
-    "theta": [POSITIVE_VALUE],
-    "expected_profit": [DOLLAR_AMOUNT]
-  }},
-  "entry_conditions": {{
-    "entry_price_range": "{ticker} between $[LOW] and $[HIGH]",
-    "volatility_condition": "daily move < [PERCENTAGE]% for stable environment",
-    "volume_requirement": "intraday volume > [NUMBER] shares",
-    "momentum_condition": "[SPECIFIC_CONDITION]"
-  }},
-  "reasoning": "Your comprehensive reasoning here"
-}}
-```
-
-**For IRON_CONDOR:**
-```json
-{{
-  "strategy_type": "IRON_CONDOR",
-  "confidence": [YOUR_CONFIDENCE_0_TO_100],
-  "market_bias": "neutral",
-  "support_level": {support_level:.0f},
-  "resistance_level": {resistance_level:.0f},
-  "volatility_factor": "[low/elevated/high]",
-  "time_decay_impact": "[favorable/neutral/unfavorable]",
-  "price_momentum": "{momentum.lower()}",
-  "volume_pattern": "{volume_pattern.lower()}",
-  "trade_setup": {{
-    "short_call_strike": [HIGHER_CALL_STRIKE],
-    "long_call_strike": [HIGHEST_CALL_STRIKE],
-    "short_put_strike": [LOWER_PUT_STRIKE],
-    "long_put_strike": [LOWEST_PUT_STRIKE],
-    "credit_received": [TOTAL_CREDIT],
-    "expiration": "[DATE_FORMAT]",
-    "max_profit": [CREDIT_TIMES_100],
-    "max_loss": [SPREAD_WIDTH_MINUS_CREDIT_TIMES_100]
-  }},
-  "risk_metrics": {{
-    "probability_of_profit": [0_TO_100],
-    "reward_risk_ratio": [RATIO],
-    "delta": [NEAR_ZERO],
     "theta": [POSITIVE_VALUE],
     "expected_profit": [DOLLAR_AMOUNT]
   }},

@@ -429,9 +429,6 @@
                     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <span class="config-value" id="current-price">$Click Refresh</span>
                         <button onclick="loadMarketData()" class="refresh-btn">🔄 Refresh</button>
-                        <button onclick="testOptionsChain()" class="refresh-btn" style="background: #9b59b6;">⚙️ Test Options</button>
-                        <button onclick="testTradingRange()" class="refresh-btn" style="background: #e67e22;">📊 Test Range</button>
-                        <button onclick="testOptionsByDate()" class="refresh-btn" style="background: #27ae60;">📅 Test Date</button>
                     </div>
                     <span class="config-label" style="margin-top: 10px;">Price Change</span>
                     <span class="config-value" id="price-change">Click Refresh</span>
@@ -554,151 +551,6 @@
             }
         }
 
-        // Test options chain function
-        async function testOptionsChain() {
-            console.log('Testing options chain...');
-            try {
-                const response = await fetch('/api/options-chain?ticker=SPY&limit=10&dte_only=true');
-                console.log('Options chain response:', response.status);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Options chain data received:', data);
-                    
-                    // Log the first few options for testing
-                    if (data.options && data.options.length > 0) {
-                        console.log(`Found ${data.options_count} options:`);
-                        data.options.slice(0, 5).forEach((option, index) => {
-                            console.log(`  ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - Type: ${option.option_type} - Bid: $${option.bid} - Ask: $${option.ask}`);
-                        });
-                        alert(`✅ Options chain test successful! Found ${data.options_count} options. Check console for details.`);
-                    } else {
-                        console.log('No options found in response');
-                        alert('⚠️ Options chain response received but no options found. Check console for details.');
-                    }
-                } else {
-                    const errorData = await response.json();
-                    console.error('Options chain error:', errorData);
-                    alert(`❌ Options chain test failed: ${errorData.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error('Error testing options chain:', error);
-                alert(`❌ Error testing options chain: ${error.message}`);
-            }
-        }
-
-        // Test trading range function
-        async function testTradingRange() {
-            console.log('Testing trading range...');
-            try {
-                const response = await fetch('/api/trading-range?ticker=SPY&dte=0');
-                console.log('Trading range response:', response.status);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Trading range data received:', data);
-                    
-                    if (data.ticker) {
-                        console.log(`Trading Range for ${data.ticker}:`);
-                        console.log(`  Current Price: $${data.current}`);
-                        console.log(`  Range: ${data.range_percent}% (±$${data.range_dollars})`);
-                        console.log(`  Strike Range: $${data.min} - $${data.max}`);
-                        console.log(`  Strike Increment: $${data.increment}`);
-                        console.log(`  Number of Strikes: ${data.strike_count}`);
-                        if (data.dte !== null) {
-                            console.log(`  DTE: ${data.dte} days`);
-                        }
-                        
-                        alert(`✅ Trading range calculated! 
-Current: $${data.current}
-Range: $${data.min} - $${data.max} (${data.range_percent}%)
-Strikes: ${data.strike_count} options
-Check console for details.`);
-                    } else {
-                        console.log('No trading range data in response');
-                        alert('⚠️ Trading range response received but no data found. Check console for details.');
-                    }
-                } else {
-                    const errorData = await response.json();
-                    console.error('Trading range error:', errorData);
-                    alert(`❌ Trading range test failed: ${errorData.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error('Error testing trading range:', error);
-                alert(`❌ Error testing trading range: ${error.message}`);
-            }
-        }
-
-        // Test options by date function
-        async function testOptionsByDate() {
-            console.log('Testing options by date...');
-            try {
-                // Use today's date for 0DTE testing
-                const today = new Date().toISOString().split('T')[0];
-                const response = await fetch(`/api/options-by-date?ticker=SPY&expiration_date=${today}`);
-                console.log('Options by date response:', response.status);
-                
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('Options by date data received:', data);
-                    
-                    if (data.success && data.options_count > 0) {
-                        console.log(`Found ${data.options_count} options for ${data.ticker} expiring on ${data.expiration_date}:`);
-                        
-                        // Group by option type for better display
-                        const calls = data.options.filter(opt => opt.option_type === 'Call' || opt.option_type === 'C');
-                        const puts = data.options.filter(opt => opt.option_type === 'Put' || opt.option_type === 'P');
-                        
-                        console.log(`  Calls: ${calls.length}, Puts: ${puts.length}`);
-                        
-                        // Show first few calls and puts
-                        if (calls.length > 0) {
-                            console.log('First few calls:');
-                            calls.slice(0, 3).forEach((option, index) => {
-                                console.log(`    ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - DTE: ${option.days_to_expiration}`);
-                            });
-                        }
-                        
-                        if (puts.length > 0) {
-                            console.log('First few puts:');
-                            puts.slice(0, 3).forEach((option, index) => {
-                                console.log(`    ${index + 1}. ${option.symbol} - Strike: $${option.strike_price} - DTE: ${option.days_to_expiration}`);
-                            });
-                        }
-                        
-                        alert(`✅ Options by date test successful! 
-Found ${data.options_count} options for ${data.ticker}
-Expiring: ${data.expiration_date}
-Calls: ${calls.length}, Puts: ${puts.length}
-Check console for details.`);
-                    } else if (data.success && data.options_count === 0) {
-                        console.log(`No options found for ${data.ticker} expiring on ${data.expiration_date}`);
-                        if (data.available_dates && data.available_dates.length > 0) {
-                            console.log('Available expiration dates:', data.available_dates);
-                            const nearestDate = data.available_dates[0];
-                            alert(`⚠️ No options found expiring on ${data.expiration_date}
-
-Available expiration dates: ${data.available_dates.slice(0, 3).join(', ')}
-
-Try testing with: ${nearestDate}`);
-                        } else {
-                            alert(`⚠️ No options found for ${data.expiration_date}. Try a different date or check if market is open.`);
-                        }
-                    } else {
-                        console.log('Unexpected response format:', data);
-                        alert(`⚠️ Unexpected response format. Check console for details.`);
-                    }
-                } else {
-                    const errorData = await response.json();
-                    console.error('Options by date error:', errorData);
-                    alert(`❌ Options by date test failed: ${errorData.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error('Error testing options by date:', error);
-                alert(`❌ Error testing options by date: ${error.message}`);
-            }
-        }
-
         // Authentication functions
         function login() {
             // Redirect to OAuth2 login
@@ -765,7 +617,7 @@ Try testing with: ${nearestDate}`);
                 });
         });
 
-        // Auto-refresh market data every 30 seconds (temporarily disabled for debugging)
+        // Auto-refresh market data every 30 seconds (disabled)
         // setInterval(loadMarketData, 30000);
     </script>
 </body>

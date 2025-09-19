@@ -366,8 +366,8 @@ def generate_prompt():
             # Get comprehensive market data using our enhanced system
             market_data = get_comprehensive_market_data(ticker, dte)
             
-            # Generate prompt using our enhanced formatting
-            prompt = format_market_analysis_prompt_v7_comprehensive(market_data, ticker, dte)
+            # Generate prompt using our enhanced formatting (only takes market_data parameter)
+            prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
             
             print(f"✅ Generated enhanced prompt with {len(prompt)} characters of comprehensive analysis")
             
@@ -498,6 +498,15 @@ def logout():
     """Logout endpoint - clears session"""
     session.clear()
     return jsonify({'success': True, 'message': 'Logged out successfully'})
+
+@app.route('/api/auth-status')
+def auth_status():
+    """Check if user is authenticated"""
+    token = session.get('access_token')
+    return jsonify({
+        'authenticated': token is not None,
+        'session_active': 'access_token' in session
+    })
 
 if __name__ == '__main__':
     app.run(
