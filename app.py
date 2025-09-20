@@ -2,9 +2,18 @@
 from flask import Flask, render_template, request, redirect, session, jsonify
 from datetime import datetime
 from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date
+import config
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_in_production'
+
+# Set Flask configuration based on environment
+app.config['DEBUG'] = config.DEBUG
+app.config['ENV'] = config.FLASK_ENV
+
+print(f"🚀 Flask App - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
+print(f"🚀 Flask App - Debug Mode: {config.DEBUG}")
+print(f"🚀 Flask App - Port: {config.PORT}")
 
 @app.route('/')
 def home():
@@ -498,10 +507,23 @@ def auth_status():
     })
 
 if __name__ == '__main__':
-    app.run(
-        debug=True,
-        host='0.0.0.0',
-        port=5001,
-        threaded=True,
-        ssl_context=('certs/cert.pem', 'certs/key.pem')
-    )
+    if config.IS_PRODUCTION:
+        # Production settings for Railway
+        print("🌍 Starting in PRODUCTION mode...")
+        app.run(
+            debug=config.DEBUG,
+            host='0.0.0.0',
+            port=config.PORT,
+            threaded=True
+            # No SSL in production - Railway handles TLS termination
+        )
+    else:
+        # Development settings with SSL
+        print("🌍 Starting in DEVELOPMENT mode...")
+        app.run(
+            debug=config.DEBUG,
+            host='0.0.0.0',
+            port=config.PORT,
+            threaded=True,
+            ssl_context=('certs/cert.pem', 'certs/key.pem')
+        )

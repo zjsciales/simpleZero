@@ -16,12 +16,17 @@ TT_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com'
 TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
 TT_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
 TT_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
-TT_REDIRECT_URI = os.getenv('TT_REDIRECT_URI')
+
+# Use environment-aware redirect URI from config
+TT_REDIRECT_URI = config.TT_REDIRECT_URI
 
 # OAuth2 settings for TastyTrade
 TT_OAUTH_BASE_URL = "https://api.cert.tastyworks.com"
 TT_CLIENT_ID = TT_API_KEY  # Using API key as client ID for OAuth2
 TT_CLIENT_SECRET = TT_API_SECRET  # Using API secret as client secret
+
+print(f"🔧 TT Module - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
+print(f"🔧 TT Module - Redirect URI: {TT_REDIRECT_URI}")
 
 # Global variables to store tokens
 _access_token = None
