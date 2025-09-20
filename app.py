@@ -43,11 +43,17 @@ def login():
     return redirect(auth_url)
 
 @app.route('/zscialespersonal')
+@app.route('/tt')
 def oauth_callback():
-    """Handle OAuth2 callback from TastyTrade"""
+    """Handle OAuth2 callback from TastyTrade (supports both dev and prod endpoints)"""
     code = request.args.get('code')
     state = request.args.get('state')
     error = request.args.get('error')
+    
+    print(f"🔐 OAuth callback received on {request.path}")
+    print(f"🔐 Code: {code[:20]}..." if code else "No code")
+    print(f"🔐 State: {state}")
+    print(f"🔐 Error: {error}" if error else "No error")
     
     if error:
         return f"OAuth Error: {error}", 400
@@ -56,9 +62,11 @@ def oauth_callback():
         return "No authorization code received", 400
     
     # Exchange code for token
+    print("🔐 Exchanging code for token...")
     token_data = exchange_code_for_token(code)
     
     if token_data and token_data.get('access_token'):
+        print("🔐 Successfully received tokens!")
         # Store both access and refresh tokens in session
         session['access_token'] = token_data['access_token']
         if token_data.get('refresh_token'):
@@ -69,8 +77,10 @@ def oauth_callback():
         if token_data.get('refresh_token'):
             set_refresh_token(token_data['refresh_token'])
             
+        print("🔐 Redirecting to dashboard...")
         return redirect('/dashboard')
     else:
+        print("🔐 Failed to exchange code for token")
         return "Failed to exchange code for token", 500
 
 @app.route('/status')
