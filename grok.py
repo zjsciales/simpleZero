@@ -20,11 +20,13 @@ from tt_data import (
     get_market_overview, 
     get_ticker_recent_data,
     get_ticker_recent_data,
-    calculate_bollinger_bands,
-    get_current_market_state,
     get_spy_data_for_dte,
     get_dte_technical_analysis,
-    get_historical_data_alpaca,
+    get_historical_data_tastytrade
+)
+from market_data import (
+    calculate_bollinger_bands,
+    get_current_market_state,
     TechnicalAnalysisManager
 )
 from tt import (
@@ -38,10 +40,10 @@ from tt import (
 )
 # Try to import dte_manager, but make it optional
 try:
-    from dte_manager import get_current_dte, dte_manager
+    from dte_manager import get_current_dte, DTEManager
     DTE_MANAGER_AVAILABLE = True
 except ImportError as e:
-    print(f"⚠️  DTE manager not available (missing alpaca dependency): {e}")
+    print(f"⚠️  DTE manager not available (missing dependency): {e}")
     DTE_MANAGER_AVAILABLE = False
     # Create simple fallback functions
     def get_current_dte():
@@ -180,7 +182,7 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
     
     try:
         # Use our streamlined data collection approach
-        from streamlined_data import get_streamlined_market_data
+        from market_data import get_streamlined_market_data
         
         print(f"📊 Using streamlined TastyTrade data collection...")
         streamlined_data = get_streamlined_market_data(ticker, dte)
@@ -254,7 +256,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     
     try:
         # Use the streamlined data collection approach
-        from streamlined_data import get_streamlined_market_data
+        from market_data import get_streamlined_market_data
         
         data = get_streamlined_market_data(ticker, dte)
         
@@ -357,7 +359,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     bb_interval = dte_config['interval']  # DTE-specific interval
     
     # Use TastyTrade data for technical analysis
-    ticker_data = get_historical_data_alpaca(ticker, period=bb_period, interval=bb_interval)
+    ticker_data = get_historical_data_tastytrade(ticker, period=bb_period, interval=bb_interval)
     if ticker_data is not None and not ticker_data.empty:
         bb_data = calculate_bollinger_bands(ticker_data)
         market_state = get_current_market_state(bb_data)
@@ -522,7 +524,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     bb_interval = dte_config['interval']  # DTE-specific interval
     
     # Use Tasty Trade data instead of yfinance
-    ticker_data = get_historical_data_alpaca(ticker, period=bb_period, interval=bb_interval)
+    ticker_data = get_historical_data_tastytrade(ticker, period=bb_period, interval=bb_interval)
     if ticker_data is not None and not ticker_data.empty:
         bb_data = calculate_bollinger_bands(ticker_data)
         market_state = get_current_market_state(bb_data)
@@ -2191,8 +2193,8 @@ class AutomatedTrader:
                 self.logger.warning("No options chain data found")
                 return 0
             
-            # Import the parser from paca module
-            from paca import parse_option_symbol
+            # Import the parser from tt module (TastyTrade)
+            from tt import parse_option_symbol
             from datetime import datetime, date
             
             # Extract expiration date from first option symbol
@@ -2495,7 +2497,7 @@ class AutomatedTrader:
         """
         try:
             # Get current options chain data with quotes for specified DTE
-            from paca import get_spy_options_chain
+            from tt import get_spy_options_chain
             from trader import get_todays_expiry
             from dte_manager import DTEManager
             

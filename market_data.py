@@ -4,11 +4,13 @@ Streamlined Market Data Collection
 
 This module uses our existing TastyTrade infrastructure (tt.py and tt_data.py)
 to gather exactly the data we need for comprehensive market analysis without
-external dependencies like yfinance or alpaca.
+external dependencies like yfinance or other market data providers.
 """
 
 import json
 import requests
+import pandas as pd
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import config
@@ -897,6 +899,430 @@ def get_authenticated_headers():
         print(f"❌ Error getting auth headers: {e}")
         return None
 
+
+# =============================================================================
+# TECHNICAL ANALYSIS FUNCTIONS
+# =============================================================================
+# Moved from tt_data.py to consolidate all market analysis in one place
+
+def calculate_simple_moving_average(data, window: int):
+    """Calculate Simple Moving Average"""
+    import pandas as pd
+    if isinstance(data, list):
+        data = pd.Series(data)
+    return data.rolling(window=window, min_periods=1).mean()
+
+def calculate_exponential_moving_average(data, window: int):
+    """Calculate Exponential Moving Average"""
+    import pandas as pd
+    if isinstance(data, list):
+        data = pd.Series(data)
+    return data.ewm(span=window, adjust=False).mean()
+
+def calculate_bollinger_bands(data, period: int = 20, std_dev: float = 2.0):
+    """
+    Enhanced Bollinger Bands calculation with squeeze detection and volatility breakout analysis
+    
+    Parameters:
+    data: DataFrame or Series with price data
+    period: Period for moving average calculation (default: 20)
+    std_dev: Standard deviation multiplier (default: 2.0)
+    
+    Returns:
+    Dictionary with Bollinger Bands data
+    """
+    import pandas as pd
+    
+    if isinstance(data, list):
+        data = pd.Series(data)
+    elif isinstance(data, pd.DataFrame):
+        data = data['close'] if 'close' in data.columns else data.iloc[:, 0]
+    
+    try:
+        # Calculate moving average and standard deviation
+        sma = data.rolling(window=period, min_periods=1).mean()
+        std = data.rolling(window=period, min_periods=1).std()
+        
+        # Calculate bands
+        upper_band = sma + (std * std_dev)
+        lower_band = sma - (std * std_dev)
+        
+        # Calculate additional metrics
+        current_price = data.iloc[-1] if len(data) > 0 else 0
+        current_sma = sma.iloc[-1] if len(sma) > 0 else 0
+        current_upper = upper_band.iloc[-1] if len(upper_band) > 0 else 0
+        current_lower = lower_band.iloc[-1] if len(lower_band) > 0 else 0
+        
+        # Band width (measure of volatility)
+        band_width = ((current_upper - current_lower) / current_sma * 100) if current_sma > 0 else 0
+        
+        # Position within bands
+        band_position = ((current_price - current_lower) / (current_upper - current_lower) * 100) if (current_upper - current_lower) > 0 else 50
+        
+        return {
+            'sma': current_sma,
+            'upper_band': current_upper,
+            'lower_band': current_lower,
+            'band_width': band_width,
+            'band_position': band_position,
+            'price': current_price,
+            'squeeze': band_width < 10,  # Bollinger Band squeeze threshold
+            'breakout': band_position > 95 or band_position < 5
+        }
+        
+    except Exception as e:
+        print(f"❌ Error calculating Bollinger Bands: {e}")
+        return {
+            'sma': 0, 'upper_band': 0, 'lower_band': 0, 'band_width': 0,
+            'band_position': 50, 'price': 0, 'squeeze': False, 'breakout': False
+        }
+
+def calculate_rsi(ticker: str, dte: int = 0, period: int = 14) -> Dict:
+    """
+    Enhanced RSI analysis with multi-timeframe precision and trend analysis
+    
+    Parameters:
+    ticker: Stock symbol
+    dte: Days to expiration (affects timeframe selection)
+    period: RSI calculation period (default: 14)
+    
+    Returns:
+    Dictionary with comprehensive RSI data
+    """
+    try:
+        from tt_data import get_historical_data_tastytrade
+        
+        # DTE-aware timeframe selection
+        if dte == 0:
+            timeframe_period = "1d"
+            timeframe_interval = "1m"
+        elif dte <= 3:
+            timeframe_period = "5d"
+            timeframe_interval = "5m"
+        elif dte <= 7:
+            timeframe_period = "10d"
+            timeframe_interval = "15m"
+        else:
+            timeframe_period = "1mo"
+            timeframe_interval = "1h"
+        
+        # Get historical data
+        historical_data = get_historical_data_tastytrade(
+            ticker, 
+            period=timeframe_period, 
+            interval=timeframe_interval
+        )
+        
+        if historical_data is None or historical_data.empty:
+            print(f"❌ No historical data for RSI calculation")
+            return {
+                'current_rsi': 50.0,
+                'trend': 'neutral',
+                'signal': 'hold',
+                'timeframe': f"{timeframe_period}_{timeframe_interval}",
+                'error': 'No historical data available'
+            }
+        
+        # Calculate RSI
+        import pandas as pd
+        close_prices = historical_data['close'] if 'close' in historical_data.columns else historical_data.iloc[:, 0]
+        
+        # Calculate price changes
+        delta = close_prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
+        
+        # Calculate RS and RSI
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        current_rsi = rsi.iloc[-1] if len(rsi) > 0 else 50.0
+        
+        # Determine trend and signals
+        if current_rsi >= 70:
+            trend = 'overbought'
+            signal = 'sell'
+        elif current_rsi <= 30:
+            trend = 'oversold'
+            signal = 'buy'
+        elif current_rsi >= 60:
+            trend = 'bullish'
+            signal = 'hold'
+        elif current_rsi <= 40:
+            trend = 'bearish'
+            signal = 'hold'
+        else:
+            trend = 'neutral'
+            signal = 'hold'
+        
+        return {
+            'current_rsi': float(current_rsi),
+            'trend': trend,
+            'signal': signal,
+            'timeframe': f"{timeframe_period}_{timeframe_interval}",
+            'period': period,
+            'data_points': len(close_prices)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error calculating RSI: {e}")
+        return {
+            'current_rsi': 50.0,
+            'trend': 'neutral',
+            'signal': 'hold',
+            'error': str(e)
+        }
+
+def get_market_overview_comprehensive(symbols: List[str] = None, force_refresh: bool = False) -> Dict[str, Dict]:
+    """
+    Comprehensive market overview with technical analysis integration
+    
+    Parameters:
+    symbols: List of symbols to analyze (defaults to major market indicators)
+    force_refresh: Force refresh of cached data
+    
+    Returns:
+    Dictionary with comprehensive market data and technical analysis
+    """
+    from tt_data import get_market_overview_tastytrade
+    
+    # Default symbols for market overview
+    if symbols is None:
+        symbols = ['SPY', 'QQQ', 'IWM', 'TLT', 'GLD', 'VIX']
+    
+    # Get basic market data
+    market_data = get_market_overview_tastytrade(symbols, force_refresh)
+    
+    # Add technical analysis for each symbol
+    for symbol in symbols:
+        if symbol in market_data:
+            try:
+                # Add RSI analysis
+                rsi_data = calculate_rsi(symbol, dte=0)
+                market_data[symbol]['rsi'] = rsi_data
+                
+                # Add trend analysis based on RSI
+                market_data[symbol]['technical_trend'] = rsi_data.get('trend', 'neutral')
+                market_data[symbol]['technical_signal'] = rsi_data.get('signal', 'hold')
+                
+            except Exception as e:
+                print(f"⚠️ Could not add technical analysis for {symbol}: {e}")
+                market_data[symbol]['rsi'] = {'current_rsi': 50.0, 'trend': 'neutral', 'signal': 'hold'}
+    
+    return market_data
+
+def get_current_market_state(data: pd.DataFrame) -> Optional[Dict]:
+    """Enhanced market state analysis with volatility breakout and squeeze detection"""
+    if data is None or data.empty:
+        return None
+    
+    try:
+        latest = data.iloc[-1]
+        current_price = latest['Close']
+        
+        # Standard Bollinger Bands
+        upper_band = latest.get('BB_Upper', latest.get('Upper_Band', current_price))
+        lower_band = latest.get('BB_Lower', latest.get('Lower_Band', current_price))
+        bb_middle = latest.get('BB_Middle', latest.get('SMA_20', current_price))
+        
+        # Enhanced volatility analysis
+        bb_width = latest.get('BB_Width', 0)
+        bb_squeeze = latest.get('BB_Squeeze', False)
+        bb_position = latest.get('BB_Position', 0.5)
+        upper_breakout = latest.get('BB_Upper_Breakout', False)
+        lower_breakout = latest.get('BB_Lower_Breakout', False)
+        significant_breakout = latest.get('Significant_Breakout', False)
+        volatility_expansion = latest.get('Volatility_Expansion', False)
+        
+        # Volume analysis
+        volume_ratio = latest.get('Volume_Ratio', 1.0)
+        atr = latest.get('ATR', 0)
+        atr_ratio = latest.get('ATR_Ratio', 1.0)
+        
+        # Calculate bb_percent (position within bands)
+        if upper_band != lower_band:
+            bb_percent = (current_price - lower_band) / (upper_band - lower_band)
+            # Calculate deviation from center (-1 to +1, where 0 is center)
+            deviation_from_center = (bb_percent - 0.5) * 2
+        else:
+            bb_percent = 0.5
+            deviation_from_center = 0.0
+        
+        # Get additional moving averages
+        sma_20 = latest.get('SMA_20', current_price)
+        sma_50 = latest.get('SMA_50', current_price)
+        ema_10 = latest.get('EMA_10', current_price)
+        ema_20 = latest.get('EMA_20', current_price)
+        
+        # Enhanced market state determination
+        if bb_squeeze:
+            market_state = 'Squeeze (Low Volatility)'
+        elif significant_breakout:
+            if upper_breakout:
+                market_state = 'Bullish Breakout (High Volume)'
+            elif lower_breakout:
+                market_state = 'Bearish Breakout (High Volume)'
+            else:
+                market_state = 'Significant Breakout'
+        elif upper_breakout:
+            market_state = 'Upper Band Breakout'
+        elif lower_breakout:
+            market_state = 'Lower Band Breakout'
+        elif volatility_expansion:
+            market_state = 'Volatility Expansion'
+        elif bb_percent > 0.8:
+            market_state = 'Near Upper Band'
+        elif bb_percent < 0.2:
+            market_state = 'Near Lower Band'
+        else:
+            market_state = 'Normal Range'
+        
+        # Trend analysis with strength
+        sma_trend_strength = abs(sma_20 - sma_50) / sma_50 if sma_50 > 0 else 0
+        ema_trend_strength = abs(ema_10 - ema_20) / ema_20 if ema_20 > 0 else 0
+        
+        # Enhanced trend interpretation
+        if sma_20 > sma_50:
+            if sma_trend_strength > 0.02:  # 2% difference
+                sma_trend = 'strong_bullish'
+            else:
+                sma_trend = 'bullish'
+        elif sma_20 < sma_50:
+            if sma_trend_strength > 0.02:
+                sma_trend = 'strong_bearish'
+            else:
+                sma_trend = 'bearish'
+        else:
+            sma_trend = 'neutral'
+        
+        if ema_10 > ema_20:
+            if ema_trend_strength > 0.015:  # 1.5% difference for faster EMA
+                ema_trend = 'strong_bullish'
+            else:
+                ema_trend = 'bullish'
+        elif ema_10 < ema_20:
+            if ema_trend_strength > 0.015:
+                ema_trend = 'strong_bearish'
+            else:
+                ema_trend = 'bearish'
+        else:
+            ema_trend = 'neutral'
+        
+        return {
+            'current_price': current_price,
+            'upper_band': upper_band,
+            'lower_band': lower_band,
+            'sma_20': sma_20,
+            'sma_50': sma_50,
+            'ema_10': ema_10,
+            'ema_20': ema_20,
+            'bb_percent': bb_percent,
+            'percent_position': bb_percent,  # Alias for grok.py compatibility
+            'deviation_from_center': deviation_from_center,
+            'market_state': market_state,
+            'sma_trend': sma_trend,
+            'ema_trend': ema_trend,
+            
+            # Enhanced volatility metrics
+            'bb_width': round(bb_width, 4),
+            'bb_squeeze': bb_squeeze,
+            'bb_position': round(bb_position, 3),
+            'upper_breakout': upper_breakout,
+            'lower_breakout': lower_breakout,
+            'significant_breakout': significant_breakout,
+            'volatility_expansion': volatility_expansion,
+            'volume_ratio': round(volume_ratio, 2),
+            'atr': round(atr, 4),
+            'atr_ratio': round(atr_ratio, 2),
+            'trend_strength_sma': round(sma_trend_strength, 4),
+            'trend_strength_ema': round(ema_trend_strength, 4),
+            
+            'timestamp': latest.name.isoformat() if hasattr(latest.name, 'isoformat') else datetime.now().isoformat()
+        }
+    except Exception as e:
+        logging.error(f"Error getting enhanced market state: {e}")
+        return None
+
+class TechnicalAnalysisManager:
+    """Simplified Technical Analysis Manager for DTE-aware analysis"""
+    
+    def __init__(self, dte: int = 0, ticker: str = "SPY"):
+        self.dte = dte
+        self.ticker = ticker
+        
+    def calculate_rsi(self, period: int = 14) -> Dict:
+        """Calculate RSI using our market data infrastructure"""
+        try:
+            # Use our existing RSI calculation from market_data.py
+            from tt_data import get_historical_data
+            
+            # Get appropriate timeframe based on DTE
+            if self.dte == 0:
+                timeframe_period = "1d"
+                timeframe_interval = "1m"
+            elif self.dte <= 3:
+                timeframe_period = "5d"
+                timeframe_interval = "5m"
+            elif self.dte <= 7:
+                timeframe_period = "10d"
+                timeframe_interval = "15m"
+            else:
+                timeframe_period = "1mo"
+                timeframe_interval = "1h"
+            
+            # Get historical data
+            historical_data = get_historical_data(
+                self.ticker, 
+                period=timeframe_period, 
+                interval=timeframe_interval
+            )
+            
+            if historical_data is None or historical_data.empty:
+                return {
+                    'status': 'error',
+                    'current_rsi': 50.0,
+                    'interpretation': 'neutral',
+                    'trend': 'neutral',
+                    'signal': 'hold'
+                }
+            
+            # Use our existing calculate_rsi function
+            rsi_data = calculate_rsi(historical_data, period)
+            
+            # Format response to match expected interface
+            current_rsi = rsi_data.get('current_rsi', 50.0)
+            
+            # Basic interpretation
+            if current_rsi >= 70:
+                interpretation = 'overbought'
+                signal = 'sell'
+            elif current_rsi <= 30:
+                interpretation = 'oversold'
+                signal = 'buy'
+            else:
+                interpretation = 'neutral'
+                signal = 'hold'
+            
+            # Basic trend (simplified)
+            trend = rsi_data.get('trend', 'neutral')
+            
+            return {
+                'status': 'success',
+                'current_rsi': current_rsi,
+                'interpretation': interpretation,
+                'trend': trend,
+                'signal': signal,
+                'timeframe': f"{timeframe_period}_{timeframe_interval}"
+            }
+            
+        except Exception as e:
+            logging.error(f"Error calculating RSI for {self.ticker}: {e}")
+            return {
+                'status': 'error',
+                'current_rsi': 50.0,
+                'interpretation': 'neutral',
+                'trend': 'neutral',
+                'signal': 'hold'
+            }
 
 if __name__ == "__main__":
     # Test the streamlined data collection

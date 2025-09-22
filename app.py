@@ -266,7 +266,7 @@ def api_options_chain():
 @app.route('/api/available-dtes')
 def api_available_dtes():
     """API endpoint to get available DTEs for a ticker"""
-    from streamlined_data import get_available_dtes
+    from market_data import get_available_dtes
     
     try:
         # Get ticker from query params (default to SPY)
@@ -304,7 +304,8 @@ def debug_options():
         ticker = request.args.get('ticker', 'SPY')
         
         # Get raw options chain data
-        from streamlined_data import get_compact_options_chain, parse_option_symbol
+        from market_data import get_compact_options_chain
+        from tt import parse_option_symbol
         raw_data = get_compact_options_chain(ticker)
         
         # Process the data to extract useful information

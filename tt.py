@@ -1810,7 +1810,7 @@ def main():
     """
     Main function to test SPY 0DTE options chain functionality
     """
-    print("🚀 Fetching SPY 0DTE Options Chain from Alpaca...")
+    print("🚀 Fetching SPY 0DTE Options Chain from TastyTrade...")
     print("=" * 60)
     
     # Get current SPY price and calculate trading range
@@ -1936,7 +1936,7 @@ def format_real_historical_options_data(bars_data, target_date, target_time, tic
             'target_date': target_date,
             'target_time': target_time,
             'ticker_price': ticker_price,
-            'data_source': 'alpaca_historical_real',
+            'data_source': 'tastytrade_historical_real',
             'timestamp': f"{target_date}T{target_time}",
             'total_symbols_requested': len(bars_data)
         },
@@ -2093,7 +2093,7 @@ def format_historical_options_data(raw_data, data_type, target_date, target_time
             'target_time': target_time,
             'data_type': data_type,
             'timestamp': f"{target_date}T{target_time}",
-            'source': 'alpaca_historical'
+            'source': 'tastytrade_historical'
         },
         'options_chain': {},
         'summary': {
