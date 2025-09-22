@@ -8,11 +8,90 @@ external dependencies like yfinance or alpaca.
 """
 
 import json
+import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import config
 from tt_data import get_market_overview, get_ticker_recent_data, get_current_price
-from tt import get_options_chain, get_current_price as tt_get_current_price, get_market_data
+from tt import get_options_chain, get_current_price as tt_get_current_price, get_market_data, get_authenticated_headers
+
+
+def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
+    """
+    Get all available DTEs (Days to Expiration) for a ticker by fetching the raw options chain
+    and analyzing what expiration dates are actually available in the market.
+    
+    Parameters:
+    ticker: Stock symbol to check
+    
+    Returns:
+    List of dictionaries with 'dte', 'expiration_date', and 'count' for available options
+    """
+    print(f"🔍 Checking available DTEs for {ticker}...")
+    
+    try:
+        # Get the raw options chain from TastyTrade API using production endpoint
+        import config
+        base_url = config.TT_API_BASE_URL if hasattr(config, 'TT_API_BASE_URL') else 'https://api.tastyworks.com'
+        options_url = f"{base_url}/option-chains/{ticker}"
+        
+        headers = get_authenticated_headers()
+        if not headers:
+            print("❌ No authentication available for options chain")
+            return []
+            
+        response = requests.get(options_url, headers=headers)
+        print(f"📡 Response Status: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to fetch options chain: {response.text}")
+            return []
+        
+        data = response.json()
+        
+        # Parse expiration dates from the response
+        available_dtes = []
+        today = datetime.now().date()
+        
+        # The structure depends on TastyTrade API response format
+        # Let's check what we get back
+        print(f"📊 Raw API response keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
+        
+        if 'data' in data and 'items' in data['data']:
+            # Group by expiration date
+            expiration_counts = {}
+            
+            for item in data['data']['items']:
+                if 'expiration-date' in item:
+                    exp_date_str = item['expiration-date']
+                    try:
+                        exp_date = datetime.strptime(exp_date_str, '%Y-%m-%d').date()
+                        dte = (exp_date - today).days
+                        
+                        if dte >= 0:  # Only future or today's expirations
+                            if exp_date_str not in expiration_counts:
+                                expiration_counts[exp_date_str] = {
+                                    'dte': dte,
+                                    'expiration_date': exp_date_str,
+                                    'count': 0
+                                }
+                            expiration_counts[exp_date_str]['count'] += 1
+                    except ValueError:
+                        continue
+            
+            # Convert to sorted list
+            available_dtes = list(expiration_counts.values())
+            available_dtes.sort(key=lambda x: x['dte'])
+            
+            print(f"✅ Found {len(available_dtes)} available DTEs for {ticker}")
+            for dte_info in available_dtes[:10]:  # Show first 10
+                print(f"   📅 {dte_info['dte']}DTE ({dte_info['expiration_date']}) - {dte_info['count']} options")
+        
+        return available_dtes
+        
+    except Exception as e:
+        print(f"❌ Error getting available DTEs for {ticker}: {e}")
+        return []
 
 
 def get_global_market_overview() -> Dict[str, Dict]:
@@ -311,7 +390,7 @@ def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
     
     try:
         import requests
-        from config import TT_SANDBOX_BASE_URL as TT_BASE_URL
+        from config import TT_API_BASE_URL as TT_BASE_URL
         
         # Get authentication headers
         headers = get_authenticated_headers()
@@ -429,6 +508,71 @@ def parse_option_symbol(symbol: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def get_spy_expiration_date(dte: int) -> str:
+    """
+    Get the correct SPY expiration date for a given DTE.
+    SPY options expire on Fridays (with some exceptions for holidays/monthlies).
+    
+    For SPY, we need to find the Friday that is closest to but >= DTE days from today.
+    
+    Parameters:
+    dte: Days to expiration requested
+    
+    Returns:
+    String in 'YYMMDD' format for the target expiration
+    """
+    from datetime import datetime, timedelta
+    
+    today = datetime.now()
+    print(f"📅 Today is {today.strftime('%A, %Y-%m-%d')}")
+    
+    if dte == 0:
+        # 0DTE means same day - but only works on expiration days (usually Friday)
+        target_date = today
+        print(f"🎯 0DTE requested: using today ({target_date.strftime('%Y-%m-%d')})")
+    else:
+        # Find all upcoming Fridays and pick the one closest to DTE days away
+        upcoming_fridays = []
+        
+        # Look ahead up to 8 weeks to find Fridays
+        for weeks_ahead in range(8):
+            # Start from today and find the next Friday
+            current_date = today + timedelta(days=7 * weeks_ahead)
+            
+            # Find the Friday of this week
+            days_until_friday = (4 - current_date.weekday()) % 7
+            if current_date.weekday() > 4 or (current_date.weekday() == 4 and weeks_ahead == 0):
+                # If we're past Friday this week, or it's Friday and we're looking at this week,
+                # move to next Friday
+                days_until_friday += 7
+            
+            friday_date = current_date + timedelta(days=days_until_friday)
+            days_from_today = (friday_date - today).days
+            
+            if days_from_today >= dte:
+                upcoming_fridays.append((friday_date, days_from_today))
+        
+        # Pick the Friday that's closest to our target DTE
+        if upcoming_fridays:
+            target_date = min(upcoming_fridays, key=lambda x: abs(x[1] - dte))[0]
+            actual_dte = (target_date - today).days
+            print(f"🎯 {dte}DTE requested: targeting Friday {target_date.strftime('%Y-%m-%d')} (actual {actual_dte}DTE)")
+        else:
+            # Fallback - just add DTE days and find nearest Friday
+            target_date = today + timedelta(days=dte)
+            current_weekday = target_date.weekday()
+            if current_weekday != 4:  # Not Friday
+                if current_weekday < 4:
+                    target_date += timedelta(days=4 - current_weekday)
+                else:
+                    target_date += timedelta(days=7 - current_weekday + 4)
+            print(f"🎯 {dte}DTE requested: fallback to Friday {target_date.strftime('%Y-%m-%d')}")
+    
+    target_str = target_date.strftime('%y%m%d')
+    print(f"🎯 Target expiration string: {target_str}")
+    return target_str
+
+
 def filter_options_by_criteria(symbols: List[str], current_price: float, dte: int, strike_range_pct: float = None) -> Dict[str, List[str]]:
     """
     Filter option symbols based on expiration date and strike range
@@ -461,11 +605,8 @@ def filter_options_by_criteria(symbols: List[str], current_price: float, dte: in
         print("❌ No symbols provided to filter!")
         return {'calls': [], 'puts': [], 'target_date': '', 'strike_range': {'min': 0, 'max': 0}}
     
-    # Calculate target expiration date (FIXED: use correct format)
-    target_date = datetime.now() + timedelta(days=dte)
-    target_str = target_date.strftime('%y%m%d')  # Fixed: was '%Y-%m-%d'
-    
-    print(f"🎯 Target expiration: {target_str} (for {target_date.strftime('%Y-%m-%d')})")
+    # Get the correct SPY expiration date for the requested DTE
+    target_str = get_spy_expiration_date(dte)
     
     # Calculate strike range (FIXED: use ± not *)
     strike_range = current_price * strike_range_pct
@@ -531,7 +672,7 @@ def get_options_market_data(option_symbols: List[str]) -> Dict[str, Dict]:
     
     try:
         import requests
-        from config import TT_SANDBOX_BASE_URL as TT_BASE_URL
+        from config import TT_API_BASE_URL as TT_BASE_URL
         
         # Get authentication headers
         headers = get_authenticated_headers()

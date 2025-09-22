@@ -28,17 +28,24 @@ IS_PRODUCTION = (
 # ENVIRONMENT-SPECIFIC SETTINGS
 # =============================================================================
 
+# Check if we're using production TastyTrade credentials
+USING_PRODUCTION_TT_CREDS = (
+    os.getenv('TT_API_KEY') and 
+    os.getenv('TT_API_KEY') != 'your_tastytrade_api_key' and
+    os.getenv('TT_API_BASE_URL', '').startswith('https://api.tastyworks.com')
+)
+
 if IS_PRODUCTION:
     # Production settings (Railway/algaebot.com)
     BASE_URL = "https://algaebot.com"
-    TT_REDIRECT_URI = f"{BASE_URL}/tt"  # Production callback URL
+    TT_REDIRECT_URI = f"{BASE_URL}/ttProd"  # Production callback URL for TastyTrade Prod
     FLASK_ENV = "production"
     DEBUG = False
     PORT = int(os.getenv('PORT', 5000))  # Railway assigns PORT
 else:
     # Development settings (localhost)
     BASE_URL = "https://127.0.0.1:5001"
-    TT_REDIRECT_URI = os.getenv('TT_REDIRECT_URI', f"{BASE_URL}/zscialespersonal")  # Dev callback URL
+    TT_REDIRECT_URI = f"{BASE_URL}/zscialesProd"  # Development callback URL for TastyTrade Prod
     FLASK_ENV = "development"
     DEBUG = True
     PORT = 5001
@@ -54,7 +61,8 @@ print(f"🔄 TT Redirect URI: {TT_REDIRECT_URI}")
 # TastyTrade (tt) API
 TT_API_KEY = os.getenv('TT_API_KEY')
 TT_API_SECRET = os.getenv('TT_API_SECRET')
-TT_SANDBOX_BASE_URL = "https://api.cert.tastyworks.com"
+TT_API_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')  # Production endpoint
+TT_SANDBOX_BASE_URL = "https://api.cert.tastyworks.com"  # Sandbox endpoint
 
 
 # X.AI (Grok) API

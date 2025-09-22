@@ -838,6 +838,20 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     """
     from datetime import datetime
     
+    # DEBUG: Print options chain data structure
+    options_chain = market_data.get('options_chain', {})
+    print(f"🔍 DEBUG: options_chain keys: {list(options_chain.keys())}")
+    if options_chain:
+        calls = options_chain.get('calls', [])
+        puts = options_chain.get('puts', [])
+        print(f"🔍 DEBUG: Found {len(calls)} calls and {len(puts)} puts in options_chain")
+        if calls:
+            print(f"🔍 DEBUG: First call sample: {calls[0]}")
+        if puts:
+            print(f"🔍 DEBUG: First put sample: {puts[0]}")
+    else:
+        print(f"🔍 DEBUG: options_chain is empty!")
+    
     # Get current ticker and market state
     ticker = market_data.get('ticker', 'SPY')  # Default to SPY if not specified
     ticker_data = market_data.get('ticker_recent', {})

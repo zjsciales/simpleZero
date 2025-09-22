@@ -105,21 +105,22 @@ class TastyTradeMarketData:
         Dict with quote data or None if error
         """
         try:
-            # Use TastyTrade market data endpoint
+            # Use TastyTrade equity endpoint
             headers = self.get_authenticated_headers()
             if not headers:
                 self.logger.error("Could not get TastyTrade authentication headers")
                 return None
                 
-            # Use the working TastyTrade API format (same as tt.py get_market_data)
-            url = f"{self.base_url}/market-data/{symbol}"
-            response = requests.get(url, headers=headers)
+            # Use the correct TastyTrade market data endpoint
+            url = f"{self.base_url}/market-data/by-type"
+            params = {'equity': symbol}
+            response = requests.get(url, headers=headers, params=params)
             response.raise_for_status()
             
             data = response.json()
-            # Handle the direct data format (not nested in items array)
-            if 'data' in data:
-                quote = data['data']
+            # Handle the data format (nested in items array)
+            if 'data' in data and 'items' in data['data'] and data['data']['items']:
+                quote = data['data']['items'][0]  # Get first item
                 return {
                     'symbol': symbol,
                     'bid': float(quote.get('bid', 0)),
@@ -155,15 +156,16 @@ class TastyTradeMarketData:
         # so we'll make individual requests for each symbol
         for symbol in symbols:
             try:
-                # Use the working TastyTrade API format (same as tt.py get_market_data)
-                url = f"{self.base_url}/market-data/{symbol}"
-                response = requests.get(url, headers=headers)
+                # Use the correct TastyTrade market data endpoint
+                url = f"{self.base_url}/market-data/by-type"
+                params = {'equity': symbol}
+                response = requests.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 
                 data = response.json()
-                # Handle the direct data format (not nested in items array)
-                if 'data' in data:
-                    quote = data['data']
+                # Handle the data format (nested in items array)
+                if 'data' in data and 'items' in data['data'] and data['data']['items']:
+                    quote = data['data']['items'][0]  # Get first item
                     result[symbol] = {
                         'symbol': symbol,
                         'bid': float(quote.get('bid', 0)),

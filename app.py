@@ -42,15 +42,29 @@ def login():
     print(f"🔗 Redirecting to: {auth_url}")
     return redirect(auth_url)
 
-@app.route('/zscialespersonal')
-@app.route('/tt')
+@app.route('/zscialespersonal')  # Legacy dev callback - keep for backward compatibility
+@app.route('/tt')  # Legacy production callback - keep for backward compatibility
+@app.route('/zscialesProd')  # New dev callback for TastyTrade Prod integration
+@app.route('/ttProd')  # New production callback for TastyTrade Prod integration
 def oauth_callback():
-    """Handle OAuth2 callback from TastyTrade (supports both dev and prod endpoints)"""
+    """Handle OAuth2 callback from TastyTrade (supports multiple endpoints)"""
     code = request.args.get('code')
     state = request.args.get('state')
     error = request.args.get('error')
     
-    print(f"🔐 OAuth callback received on {request.path}")
+    # Determine which callback URI was used
+    callback_uri = request.path
+    environment_info = ""
+    if callback_uri == "/zscialesProd":
+        environment_info = " (Development → TastyTrade Prod)"
+    elif callback_uri == "/ttProd":
+        environment_info = " (Production → TastyTrade Prod)"
+    elif callback_uri == "/zscialespersonal":
+        environment_info = " (Legacy Dev Callback)"
+    elif callback_uri == "/tt":
+        environment_info = " (Legacy Prod Callback)"
+    
+    print(f"🔐 OAuth callback received on {callback_uri}{environment_info}")
     print(f"🔐 Code: {code[:20]}..." if code else "No code")
     print(f"🔐 State: {state}")
     print(f"🔐 Error: {error}" if error else "No error")
@@ -248,6 +262,108 @@ def api_options_chain():
     except Exception as e:
         print(f"💥 Exception in options chain retrieval: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/available-dtes')
+def api_available_dtes():
+    """API endpoint to get available DTEs for a ticker"""
+    from streamlined_data import get_available_dtes
+    
+    try:
+        # Get ticker from query params (default to SPY)
+        ticker = request.args.get('ticker', 'SPY').upper()
+        print(f"🔍 Getting available DTEs for {ticker}")
+        
+        # Check authentication
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        available_dtes = get_available_dtes(ticker)
+        
+        if available_dtes:
+            print(f"✅ Found {len(available_dtes)} available DTEs for {ticker}")
+            return jsonify({
+                'success': True,
+                'ticker': ticker,
+                'available_dtes': available_dtes,
+                'count': len(available_dtes)
+            })
+        else:
+            print(f"❌ No DTEs available for {ticker}")
+            return jsonify({'error': f'No DTEs available for {ticker}'}), 404
+            
+    except Exception as e:
+        print(f"💥 Exception getting available DTEs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/debug-options')
+def debug_options():
+    """Debug endpoint to inspect raw options data"""
+    try:
+        print("🔧 Debug options endpoint called")
+        ticker = request.args.get('ticker', 'SPY')
+        
+        # Get raw options chain data
+        from streamlined_data import get_compact_options_chain, parse_option_symbol
+        raw_data = get_compact_options_chain(ticker)
+        
+        # Process the data to extract useful information
+        all_options = []
+        expiration_dates = set()
+        
+        print(f"🔍 Raw data type: {type(raw_data)}")
+        print(f"🔍 Raw data keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
+        
+        if isinstance(raw_data, dict) and raw_data.get('success') and 'symbols' in raw_data:
+            symbols = raw_data['symbols']
+            print(f"🔍 Found {len(symbols)} symbols in raw_data['symbols']")
+            
+            for symbol in symbols:
+                if isinstance(symbol, str):
+                    # Parse the option symbol
+                    parsed = parse_option_symbol(symbol)
+                    if parsed:
+                        option_info = {
+                            'symbol': symbol,
+                            'expiration_date': parsed.get('expiration_date', 'Unknown'),
+                            'strike_price': parsed.get('strike_price', 'Unknown'),
+                            'option_type': parsed.get('option_type', 'Unknown'),
+                            'underlying': parsed.get('underlying', 'Unknown')
+                        }
+                        all_options.append(option_info)
+                        
+                        # Track expiration dates
+                        exp_date = parsed.get('expiration_date')
+                        if exp_date:
+                            expiration_dates.add(exp_date)
+                    else:
+                        print(f"⚠️ Could not parse symbol: {symbol}")
+        else:
+            print(f"🔍 Raw data format not as expected. Success: {raw_data.get('success')}, has symbols: {'symbols' in raw_data}")
+        
+        # Sort expiration dates
+        sorted_expirations = sorted(list(expiration_dates))
+        
+        # Get sample options (first 1000)
+        sample_options = all_options[:1000]
+        
+        return jsonify({
+            'success': True,
+            'ticker': ticker,
+            'total_options': len(all_options),
+            'unique_expirations': len(sorted_expirations),
+            'response_type': str(type(raw_data)),
+            'raw_response_keys': list(raw_data.keys()) if isinstance(raw_data, dict) else [],
+            'expiration_dates': sorted_expirations,
+            'sample_options': sample_options,
+            'raw_data_preview': str(raw_data)[:1000],  # First 1000 chars for debugging
+            'raw_symbols_count': len(raw_data.get('symbols', [])) if isinstance(raw_data, dict) else 0
+        })
+    except Exception as e:
+        print(f"💥 Exception in debug options: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/trading-range')
 def api_trading_range():

@@ -9,24 +9,27 @@ import config
 # Load environment variables
 load_dotenv()
 
-# TastyTrade API credentials (Sandbox)
-TT_API_KEY = os.getenv('TT_API_KEY_SANDBOX')
-TT_API_SECRET = os.getenv('TT_API_SECRET_SANDBOX')
-TT_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com')
-TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
-TT_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
-TT_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
+# TastyTrade API credentials (Production)
+TT_API_KEY = os.getenv('TT_API_KEY')
+TT_API_SECRET = os.getenv('TT_API_SECRET')
+TT_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
+TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER')
+TT_USERNAME = os.getenv('TT_USERNAME')
+TT_PASSWORD = os.getenv('TT_PASSWORD')
 
 # Use environment-aware redirect URI from config
 TT_REDIRECT_URI = config.TT_REDIRECT_URI
 
 # OAuth2 settings for TastyTrade
-TT_OAUTH_BASE_URL = "https://api.cert.tastyworks.com"
+TT_OAUTH_BASE_URL = TT_BASE_URL  # Use same base URL as API calls
 TT_CLIENT_ID = TT_API_KEY  # Using API key as client ID for OAuth2
 TT_CLIENT_SECRET = TT_API_SECRET  # Using API secret as client secret
 
 print(f"🔧 TT Module - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
 print(f"🔧 TT Module - Redirect URI: {TT_REDIRECT_URI}")
+print(f"🔑 TT Module - API Key loaded: {TT_API_KEY[:10]}..." if TT_API_KEY else "❌ TT Module - No API Key loaded")
+print(f"🔑 TT Module - API Secret loaded: {TT_API_SECRET[:10]}..." if TT_API_SECRET else "❌ TT Module - No API Secret loaded")
+print(f"🔗 TT Module - Base URL: {TT_BASE_URL}")
 
 # Global variables to store tokens
 _access_token = None
@@ -154,7 +157,7 @@ def get_oauth_authorization_url():
     User will need to visit this URL to authorize the application.
     
     Based on TastyTrade OAuth2 documentation:
-    - Authorization URL: https://cert-my.staging-tasty.works/auth.html (Sandbox)
+    - Authorization URL: Uses production endpoint for live trading
     - Parameters: client_id, redirect_uri, response_type, scope (optional), state (optional)
     
     Returns:
@@ -162,18 +165,46 @@ def get_oauth_authorization_url():
     """
     import urllib.parse
     
+    print(f"🔗 Building OAuth URL...")
+    print(f"🔑 Client ID: {TT_CLIENT_ID[:10]}..." if TT_CLIENT_ID else "❌ No Client ID")
+    print(f"🔄 Redirect URI: {TT_REDIRECT_URI}")
+    print(f"🌐 Base URL: {TT_BASE_URL}")
+    print(f"🏭 Using production credentials: {'Yes' if TT_CLIENT_ID and TT_CLIENT_ID != 'your_tastytrade_api_key' else 'No'}")
+    
     params = {
         'client_id': TT_CLIENT_ID,
         'redirect_uri': TT_REDIRECT_URI,
         'response_type': 'code',
-        'scope': 'read trade openid',  # Valid scopes per documentation
-        'state': 'random_state_string'  # Should be random in production
+        'scope': 'read trade openid'  # Valid scopes per documentation (removed state parameter)
     }
     
-    # Use the correct TastyTrade authorization endpoint for sandbox
-    base_url = "https://cert-my.staging-tasty.works/auth.html"
+    # Use the correct TastyTrade authorization endpoint from documentation
+    # According to docs: https://my.tastytrade.com/auth.html (Production)
+    # Check if we have production credentials (not placeholder values)
+    using_production_creds = (TT_CLIENT_ID and 
+                             TT_CLIENT_ID != 'your_tastytrade_api_key' and 
+                             "api.tastyworks.com" in TT_BASE_URL)
+    
+    if using_production_creds:
+        # Production authorization endpoint per TastyTrade documentation
+        base_url = "https://my.tastytrade.com/auth.html"
+        print(f"🎯 Using production auth endpoint: {base_url}")
+    else:
+        # ERROR: This should never happen now - let's see what's going wrong
+        print(f"❌ FALLBACK TRIGGERED - This shouldn't happen!")
+        print(f"   TT_CLIENT_ID: '{TT_CLIENT_ID}'")
+        print(f"   TT_CLIENT_ID != placeholder: {TT_CLIENT_ID != 'your_tastytrade_api_key'}")
+        print(f"   TT_BASE_URL: '{TT_BASE_URL}'")
+        print(f"   api.tastyworks.com in base: {'api.tastyworks.com' in TT_BASE_URL}")
+        
+        # Force production endpoint anyway
+        base_url = "https://my.tastytrade.com/auth.html"
+        print(f"🔧 FORCING production auth endpoint: {base_url}")
+    
     query_string = urllib.parse.urlencode(params)
     auth_url = f"{base_url}?{query_string}"
+    
+    print(f"🔗 Final OAuth URL: {auth_url}")
     
     return auth_url
 
@@ -325,10 +356,12 @@ def get_market_data(ticker=None):
         ticker = config.DEFAULT_TICKER.upper()
     
     try:
-        # TastyTrade market data endpoint - try direct ticker format
-        # This format worked in our successful run
-        market_data_url = f"{TT_BASE_URL}/market-data/{ticker}"
-        params = {}
+        # TastyTrade market data endpoint - use the correct /market-data/ structure
+        # Based on documentation: GET /market-data/by-type with equity parameter
+        market_data_url = f"{TT_BASE_URL}/market-data/by-type"
+        params = {
+            'equity': [ticker]  # Pass ticker as equity array parameter
+        }
         
         print(f"🔗 Calling TastyTrade Market Data API: {market_data_url}")
         print(f"📋 Parameters: {params}")
@@ -357,45 +390,78 @@ def get_market_data(ticker=None):
             # Debug: Print the actual response structure
             print(f"🔍 Response structure: {list(data.keys())}")
             
-            # Based on TastyTrade documentation, expect: {"data": {"items": [...]}}
+            # TastyTrade market data response - should contain real-time pricing data
+            # We need to get actual market data/quotes
+            print(f"🔍 Found instrument data, now getting market quotes...")
+            
+            # Try market data endpoints for actual pricing
+            quote_endpoints = [
+                f"{TT_BASE_URL}/market-data/quotes",
+                f"{TT_BASE_URL}/market-metrics",
+                f"{TT_BASE_URL}/quotes",
+            ]
+            
             ticker_data = None
-            
-            if 'data' in data:
-                data_obj = data['data']
-                print(f"🔍 Data structure: {list(data_obj.keys())}")
-                
-                # Check if it has items array (expected format)
-                if 'items' in data_obj and isinstance(data_obj['items'], list):
-                    items = data_obj['items']
-                    print(f"🔍 Items count: {len(items)}")
+            for quote_endpoint in quote_endpoints:
+                try:
+                    print(f"🔄 Trying quotes endpoint: {quote_endpoint}")
+                    quote_params = {'symbols': ticker}
                     
-                    if items:
-                        # Should be SPY data in the first (and likely only) item
-                        first_item = items[0]
-                        print(f"🔍 First item keys: {list(first_item.keys())}")
-                        print(f"🔍 First item symbol: {first_item.get('symbol')}")
-                        
-                        # Check if this is our SPY data
-                        if first_item.get('symbol', '').upper() == ticker.upper():
-                            ticker_data = first_item
-                            print(f"✅ Found matching symbol: {ticker}")
-                        else:
-                            print(f"⚠️ Symbol mismatch: expected {ticker}, got {first_item.get('symbol')}")
+                    if headers:
+                        quote_response = requests.get(quote_endpoint, headers=headers, params=quote_params)
                     else:
-                        print(f"🔍 Items array is empty")
-                else:
-                    print(f"🔍 No 'items' array found in data")
-                    # Maybe it's a direct object format
-                    if data_obj.get('symbol', '').upper() == ticker.upper():
-                        ticker_data = data_obj
-                        print(f"🔍 Found direct symbol format")
-            else:
-                print(f"🔍 No 'data' key in response")
+                        quote_response = requests.get(quote_endpoint, params=quote_params)
+                    
+                    print(f"📡 Quote Response Status: {quote_response.status_code}")
+                    
+                    if quote_response.status_code == 200:
+                        quote_data = quote_response.json()
+                        print(f"� Quote data structure: {list(quote_data.keys())}")
+                        
+                        # Parse quote response for pricing data
+                        if 'data' in quote_data:
+                            quote_obj = quote_data['data']
+                            if 'items' in quote_obj and isinstance(quote_obj['items'], list):
+                                items = quote_obj['items']
+                                if items:
+                                    ticker_data = items[0]
+                                    print(f"✅ Found quote data with endpoint: {quote_endpoint}")
+                                    break
+                        elif isinstance(quote_data, list) and quote_data:
+                            ticker_data = quote_data[0]
+                            print(f"✅ Found quote data (direct array) with endpoint: {quote_endpoint}")
+                            break
+                    else:
+                        print(f"❌ Quote endpoint failed: {quote_response.text[:100]}")
+                        
+                except Exception as e:
+                    print(f"❌ Error with quote endpoint {quote_endpoint}: {e}")
             
+            # If no quotes found, use the instrument data but with warning
             if not ticker_data:
-                print(f"❌ No market data found for {ticker}")
-                print(f"🔍 Full response: {data}")
-                return None
+                print(f"⚠️ No real-time quotes found, using instrument metadata")
+                ticker_data = data.get('data', {})
+                
+                # For instrument data, we don't have real-time pricing
+                market_info = {
+                    'symbol': ticker,
+                    'current_price': 0.0,  # No real-time price available
+                    'bid': 0.0,
+                    'ask': 0.0, 
+                    'volume': 0,
+                    'close': 0.0,
+                    'price_change': 0.0,
+                    'percent_change': 0.0,
+                    'data_type': 'instrument_metadata',
+                    'warning': 'Real-time pricing not available',
+                    'raw_data': ticker_data
+                }
+                
+                print(f"⚠️ {ticker}: No real-time pricing available (instrument metadata only)")
+                print(f"📊 Symbol: {ticker_data.get('symbol', 'N/A')}")
+                print(f"� Description: {ticker_data.get('description', 'N/A')}")
+                
+                return market_info
             
             # Extract relevant market data using TastyTrade field names
             # Based on the API response structure you provided
