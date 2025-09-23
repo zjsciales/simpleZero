@@ -1,7 +1,8 @@
 # Simple Flask app with SSL and TastyTrade OAuth2
 from flask import Flask, render_template, request, redirect, session, jsonify
 from datetime import datetime
-from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date
+from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date, get_options_chain_data
+from tt_data import TastyTradeMarketData
 import config
 
 app = Flask(__name__)
@@ -14,6 +15,49 @@ app.config['ENV'] = config.FLASK_ENV
 print(f"🚀 Flask App - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
 print(f"🚀 Flask App - Debug Mode: {config.DEBUG}")
 print(f"🚀 Flask App - Port: {config.PORT}")
+
+# Helper function for market data using clean architecture
+def get_market_data_clean(ticker='SPY'):
+    """Get market data using the clean tt_data.py implementation"""
+    try:
+        client = TastyTradeMarketData()
+        market_data = client.get_market_data_clean(ticker)
+        
+        if market_data:
+            return {
+                'symbol': market_data['symbol'],
+                'current_price': market_data['current_price'],
+                'bid': market_data['bid'],
+                'ask': market_data['ask'],
+                'volume': market_data['volume'],
+                'price_change': market_data['price_change'],
+                'percent_change': market_data['percent_change'],
+                'status': 'success'
+            }
+        else:
+            return {
+                'symbol': ticker,
+                'current_price': 0.0,
+                'bid': 0.0,
+                'ask': 0.0,
+                'volume': 0,
+                'price_change': 0.0,
+                'percent_change': 0.0,
+                'status': 'error',
+                'error': 'No market data available'
+            }
+    except Exception as e:
+        return {
+            'symbol': ticker,
+            'current_price': 0.0,
+            'bid': 0.0,
+            'ask': 0.0,
+            'volume': 0,
+            'price_change': 0.0,
+            'percent_change': 0.0,
+            'status': 'error',
+            'error': str(e)
+        }
 
 @app.route('/')
 def home():
@@ -132,7 +176,7 @@ def market_data():
     
     # Try to get market data
     try:
-        market_info = get_market_data()
+        market_info = get_market_data_clean()
         
         if market_info:
             return f"""
@@ -186,15 +230,16 @@ def api_market_data():
     
     # Try to get market data
     try:
-        print("📞 Calling get_market_data() function")
-        market_info = get_market_data()
+        print("📞 Calling get_market_data_clean() function")
+        market_info = get_market_data_clean()
         
-        if market_info:
+        if market_info and market_info.get('status') == 'success':
             print("✅ Market data retrieved successfully")
             return jsonify(market_info)
         else:
-            print("❌ Market data function returned None")
-            return jsonify({'error': 'Market data unavailable'}), 503
+            error_msg = market_info.get('error', 'Market data unavailable') if market_info else 'Market data function returned None'
+            print(f"❌ Market data error: {error_msg}")
+            return jsonify({'error': error_msg}), 503
     except Exception as e:
         print(f"💥 Exception in market data retrieval: {e}")
         return jsonify({'error': str(e)}), 500
@@ -240,17 +285,14 @@ def api_options_chain():
             if strike_max:
                 strike_range['max'] = float(strike_max)
         
-        print(f"📞 Calling get_options_chain() function")
-        print(f"📋 Parameters: ticker={ticker}, limit={limit}, dte_only={dte_only}, dte={dte}, option_type={option_type}, strike_range={strike_range}")
+        print(f"📞 Calling get_options_chain_data() function with bulk API")
+        print(f"📋 Parameters: ticker={ticker}, dte={dte}")
         
-        # Call the options chain function
-        options_info = get_options_chain(
+        # Call the new bulk options chain function
+        options_info = get_options_chain_data(
             ticker=ticker,
-            limit=limit,
-            dte_only=dte_only,
-            dte=dte,
-            strike_range=strike_range,
-            option_type=option_type
+            dte=dte if dte is not None else 0,  # Default to 0DTE if not specified
+            current_price=None  # Let it fetch the current price
         )
         
         if options_info:
@@ -559,49 +601,13 @@ def grok_analysis():
         # Create GrokAnalyzer
         analyzer = GrokAnalyzer()
         
-        # Generate comprehensive market analysis prompt
-        prompt = f"""Analyze the current market conditions for {ticker} with {dte}DTE focus:
-
-Market Analysis Request:
-- Ticker: {ticker}
-- Days to Expiration: {dte}
-- Analysis Type: {"Intraday scalping" if dte == 0 else f"{dte}-day swing trading"}
-- Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S EST')}
-
-Please provide a comprehensive analysis including:
-
-1. **Current Market Assessment**
-   - Overall market sentiment and trend direction
-   - Key technical levels (support/resistance)
-   - Current price action and momentum indicators
-
-2. **Technical Analysis**
-   - RSI conditions and overbought/oversold levels
-   - Moving average positioning and trends
-   - Bollinger Band analysis and volatility assessment
-
-3. **Options Trading Opportunities**
-   - Optimal strike price recommendations for {dte}DTE
-   - Credit spread opportunities (put/call spreads)
-   - Risk/reward ratios for recommended trades
-
-4. **Risk Management**
-   - Position sizing recommendations
-   - Stop-loss levels and profit targets
-   - Market conditions to avoid trading
-
-5. **Actionable Insights**
-   - Specific entry and exit strategies
-   - Time-of-day considerations for {dte}DTE trading
-   - Market catalysts to watch
-
-Focus on actionable, specific recommendations for {ticker} {dte}DTE trading with current market conditions."""
-
-        print(f"📤 Sending market analysis prompt to Grok...")
-        grok_response = analyzer.send_to_grok(prompt)
+        print(f"� Starting comprehensive Grok analysis for {ticker} {dte}DTE...")
+        
+        # Use the comprehensive analysis method
+        grok_response = analyzer.send_analysis_request(ticker, dte)
         
         if grok_response:
-            print(f"✅ Grok analysis completed")
+            print(f"✅ Grok analysis completed - Response length: {len(grok_response)} characters")
             return jsonify({
                 'success': True,
                 'analysis': grok_response,
@@ -626,12 +632,48 @@ def logout():
 
 @app.route('/api/auth-status')
 def auth_status():
-    """Check if user is authenticated"""
-    token = session.get('access_token')
-    return jsonify({
-        'authenticated': token is not None,
-        'session_active': 'access_token' in session
-    })
+    """Check if user is authenticated with TastyTrade API"""
+    try:
+        # Check Flask session
+        token = session.get('access_token')
+        has_session_token = token is not None
+        
+        # Check actual TastyTrade API connection
+        from tt_data import TastyTradeClient
+        client = TastyTradeClient()
+        api_authenticated = client.authenticate()
+        
+        # Test actual API call if authenticated
+        api_working = False
+        if api_authenticated:
+            try:
+                # Try a simple API call to verify connection
+                test_data = client.get_market_data_clean('SPY')
+                api_working = test_data is not None
+            except Exception as e:
+                print(f"🔍 API test call failed: {e}")
+                api_working = False
+        
+        return jsonify({
+            'authenticated': api_authenticated and api_working,
+            'session_active': has_session_token,
+            'api_authenticated': api_authenticated,
+            'api_working': api_working,
+            'details': {
+                'flask_session': has_session_token,
+                'tt_headers': api_authenticated,
+                'api_test': api_working
+            }
+        })
+    except Exception as e:
+        print(f"❌ Error checking auth status: {e}")
+        return jsonify({
+            'authenticated': False,
+            'session_active': False,
+            'api_authenticated': False,
+            'api_working': False,
+            'error': str(e)
+        })
 
 if __name__ == '__main__':
     if config.IS_PRODUCTION:

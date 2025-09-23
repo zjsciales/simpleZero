@@ -162,14 +162,23 @@
                 const loginBtn = document.getElementById('loginBtn');
                 const logoutBtn = document.getElementById('logoutBtn');
                 
-                if (data.authenticated) {
-                    authStatus.innerHTML = '🟢 Authenticated';
+                console.log('🔍 Auth Status Details:', data);
+                
+                if (data.authenticated && data.api_working) {
+                    authStatus.innerHTML = '🟢 TT Connected';
                     authStatus.style.color = '#28a745';
                     loginBtn.style.display = 'none';
                     logoutBtn.style.display = 'inline-block';
+                } else if (data.session_active && !data.api_working) {
+                    authStatus.innerHTML = '� Session Expired';
+                    authStatus.style.color = '#ffc107';
+                    authStatus.title = 'TastyTrade session expired, please re-login';
+                    loginBtn.style.display = 'inline-block';
+                    logoutBtn.style.display = 'inline-block';
                 } else {
-                    authStatus.innerHTML = '🔴 Not Authenticated';
+                    authStatus.innerHTML = '🔴 Not Connected';
                     authStatus.style.color = '#dc3545';
+                    authStatus.title = 'Not authenticated with TastyTrade';
                     loginBtn.style.display = 'inline-block';
                     logoutBtn.style.display = 'none';
                 }
@@ -178,6 +187,7 @@
                 const authStatus = document.getElementById('authStatus');
                 authStatus.innerHTML = '⚠️ Auth Check Failed';
                 authStatus.style.color = '#ffc107';
+                authStatus.title = 'Could not check authentication status';
             }
         }
 
@@ -209,8 +219,11 @@
         // Check auth status when page loads
         document.addEventListener('DOMContentLoaded', checkAuthStatus);
         
-        // Check auth status every 30 seconds to keep it fresh
-        setInterval(checkAuthStatus, 30000);
+        // Check auth status every 14 minutes to catch token expiration (TT tokens expire every 15 min)
+        setInterval(checkAuthStatus, 840000);
+        
+        // Also check auth status when window gains focus (user returns to tab)
+        window.addEventListener('focus', checkAuthStatus);
     </script>
 
     {% block extra_js %}{% endblock %}

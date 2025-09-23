@@ -2,9 +2,9 @@
 Streamlined Market Data Collection
 =================================
 
-This module uses our existing TastyTrade infrastructure (tt.py and tt_data.py)
-to gather exactly the data we need for comprehensive market analysis without
-external dependencies like yfinance or other market data providers.
+This module combines TastyTrade infrastructure (tt.py and tt_data.py) for real-time
+data and options with yfinance for historical data needed for technical analysis.
+Uses yfinance sparingly to avoid rate limiting.
 """
 
 import json
@@ -14,8 +14,334 @@ import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 import config
-from tt_data import get_market_overview, get_ticker_recent_data, get_current_price
-from tt import get_options_chain, get_current_price as tt_get_current_price, get_market_data, get_authenticated_headers
+
+# Import yfinance for historical data (used sparingly)
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+    print("✅ yfinance imported successfully")
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    print("⚠️ yfinance not available - technical analysis will use fallback values")
+from tt_data import get_market_overview, get_ticker_recent_data
+from tt import get_options_chain_data, get_authenticated_headers
+
+# Cache for yfinance data to minimize API calls
+_yfinance_cache = {}
+_cache_timeout = 300  # 5 minutes
+
+# Cache for day changes (longer timeout since they change less frequently)
+_day_change_cache = {}
+_day_change_cache_timeout = 900  # 15 minutes
+
+def get_day_changes_yfinance(symbols: List[str]) -> Dict[str, Dict]:
+    """
+    Get day-over-day changes for multiple symbols efficiently using yfinance
+    Uses aggressive caching to minimize API calls (15-minute cache)
+    
+    Parameters:
+    symbols: List of stock symbols
+    
+    Returns:
+    Dict with symbols as keys and change data as values
+    """
+    if not YFINANCE_AVAILABLE:
+        print(f"❌ yfinance not available for day changes")
+        return {}
+    
+    current_time = datetime.now()
+    results = {}
+    
+    # Check which symbols need fresh data
+    symbols_to_fetch = []
+    for symbol in symbols:
+        cache_key = f"day_change_{symbol}"
+        if cache_key in _day_change_cache:
+            cached_data, cache_time = _day_change_cache[cache_key]
+            if (current_time - cache_time).seconds < _day_change_cache_timeout:
+                results[symbol] = cached_data
+                continue
+        symbols_to_fetch.append(symbol)
+    
+    if not symbols_to_fetch:
+        print(f"✅ Using cached day changes for all {len(symbols)} symbols")
+        return results
+    
+    try:
+        print(f"📊 Fetching day changes from yfinance for: {', '.join(symbols_to_fetch)}")
+        
+        # Fetch 2 days of daily data to calculate day change
+        for symbol in symbols_to_fetch:
+            try:
+                ticker_obj = yf.Ticker(symbol)
+                hist_data = ticker_obj.history(period="2d", interval="1d")
+                
+                if len(hist_data) >= 2:
+                    current_close = hist_data['Close'].iloc[-1]
+                    previous_close = hist_data['Close'].iloc[-2]
+                    day_change = current_close - previous_close
+                    day_change_percent = (day_change / previous_close) * 100
+                    
+                    change_data = {
+                        'day_change': float(day_change),
+                        'day_change_percent': float(day_change_percent),
+                        'current_price': float(current_close),
+                        'previous_close': float(previous_close)
+                    }
+                    
+                    results[symbol] = change_data
+                    _day_change_cache[f"day_change_{symbol}"] = (change_data, current_time)
+                    
+                elif len(hist_data) == 1:
+                    # Only one day of data, assume 0% change
+                    current_close = hist_data['Close'].iloc[-1]
+                    change_data = {
+                        'day_change': 0.0,
+                        'day_change_percent': 0.0,
+                        'current_price': float(current_close),
+                        'previous_close': float(current_close)
+                    }
+                    results[symbol] = change_data
+                    _day_change_cache[f"day_change_{symbol}"] = (change_data, current_time)
+                
+            except Exception as e:
+                print(f"⚠️ Error getting day change for {symbol}: {e}")
+                # Provide fallback data
+                results[symbol] = {
+                    'day_change': 0.0,
+                    'day_change_percent': 0.0,
+                    'current_price': 0.0,
+                    'previous_close': 0.0
+                }
+        
+        print(f"✅ Retrieved day changes for {len(symbols_to_fetch)} symbols")
+        return results
+        
+    except Exception as e:
+        print(f"❌ Error fetching day changes from yfinance: {e}")
+        return {symbol: {'day_change': 0.0, 'day_change_percent': 0.0, 'current_price': 0.0, 'previous_close': 0.0} for symbol in symbols_to_fetch}
+
+def get_historical_data_yfinance(ticker: str, period: str = "5d", interval: str = "1h") -> Optional[pd.DataFrame]:
+    """
+    Get historical data using yfinance with caching to minimize API calls
+    
+    Parameters:
+    ticker: Stock symbol
+    period: Data period ('1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', '10y', 'ytd', 'max')
+    interval: Data interval ('1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h', '1d', '5d', '1wk', '1mo', '3mo')
+    
+    Returns:
+    DataFrame with OHLCV data or None if failed
+    """
+    if not YFINANCE_AVAILABLE:
+        print(f"❌ yfinance not available for {ticker} historical data")
+        return None
+    
+    # Create cache key
+    cache_key = f"{ticker}_{period}_{interval}"
+    current_time = datetime.now()
+    
+    # Check cache first
+    if cache_key in _yfinance_cache:
+        cached_data, cache_time = _yfinance_cache[cache_key]
+        if (current_time - cache_time).seconds < _cache_timeout:
+            print(f"✅ Using cached yfinance data for {ticker} ({period}, {interval})")
+            return cached_data
+    
+    try:
+        print(f"📊 Fetching {ticker} historical data from yfinance ({period}, {interval})...")
+        
+        # Create ticker object
+        ticker_obj = yf.Ticker(ticker)
+        
+        # Get historical data
+        hist_data = ticker_obj.history(period=period, interval=interval)
+        
+        if hist_data.empty:
+            print(f"❌ No historical data returned for {ticker}")
+            return None
+        
+        # Clean and standardize column names
+        hist_data.columns = [col.title() for col in hist_data.columns]
+        
+        # Cache the result
+        _yfinance_cache[cache_key] = (hist_data, current_time)
+        
+        print(f"✅ Retrieved {len(hist_data)} data points for {ticker} from yfinance")
+        return hist_data
+        
+    except Exception as e:
+        print(f"❌ Error fetching {ticker} data from yfinance: {e}")
+        return None
+
+
+def get_enhanced_historical_data(ticker: str, dte: int = 0) -> Optional[pd.DataFrame]:
+    """
+    Get historical data optimized for DTE-specific analysis using yfinance
+    
+    Parameters:
+    ticker: Stock symbol
+    dte: Days to expiration (determines timeframe)
+    
+    Returns:
+    DataFrame with enhanced historical data including technical indicators
+    """
+    try:
+        # DTE-aware timeframe selection for better technical analysis
+        if dte == 0:
+            # 0DTE: Need recent intraday data
+            period = "1d"
+            interval = "1m"
+            min_periods = 30  # At least 30 minutes of data
+        elif dte <= 3:
+            # Short DTE: Recent hourly data
+            period = "5d" 
+            interval = "5m"
+            min_periods = 50  # ~4 hours of 5min data
+        elif dte <= 7:
+            # Medium DTE: Recent daily data
+            period = "1mo"
+            interval = "15m"
+            min_periods = 96  # ~1 day of 15min data
+        else:
+            # Longer DTE: More historical daily data
+            period = "3mo"
+            interval = "1h"
+            min_periods = 100  # ~4 days of hourly data
+        
+        print(f"📈 Getting enhanced historical data for {ticker} ({dte}DTE): {period} @ {interval}")
+        
+        # Get data from yfinance
+        hist_data = get_historical_data_yfinance(ticker, period, interval)
+        
+        if hist_data is None or len(hist_data) < min_periods:
+            print(f"⚠️ Insufficient historical data for {ticker} (got {len(hist_data) if hist_data is not None else 0}, need {min_periods})")
+            # Try a longer period as fallback
+            if dte == 0:
+                print(f"🔄 Trying 5d period for 0DTE fallback...")
+                hist_data = get_historical_data_yfinance(ticker, "5d", "5m")
+            
+            if hist_data is None or len(hist_data) < 20:  # Absolute minimum
+                print(f"❌ Cannot get sufficient historical data for {ticker}")
+                return None
+        
+        # Add technical indicators
+        hist_data = add_technical_indicators(hist_data)
+        
+        print(f"✅ Enhanced historical data ready: {len(hist_data)} periods with technical indicators")
+        return hist_data
+        
+    except Exception as e:
+        print(f"❌ Error getting enhanced historical data for {ticker}: {e}")
+        return None
+
+
+def add_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add comprehensive technical indicators to historical data DataFrame
+    
+    Parameters:
+    df: DataFrame with OHLCV data
+    
+    Returns:
+    DataFrame with added technical indicators
+    """
+    if df is None or df.empty:
+        return df
+    
+    try:
+        # Ensure we have the required columns
+        if 'Close' not in df.columns:
+            print(f"❌ No 'Close' column in DataFrame")
+            return df
+        
+        print(f"🔧 Adding technical indicators to {len(df)} data points...")
+        
+        # Moving Averages
+        df['SMA_10'] = df['Close'].rolling(window=10, min_periods=1).mean()
+        df['SMA_20'] = df['Close'].rolling(window=20, min_periods=1).mean()
+        df['SMA_50'] = df['Close'].rolling(window=min(50, len(df)), min_periods=1).mean()
+        df['EMA_10'] = df['Close'].ewm(span=10, adjust=False).mean()
+        df['EMA_20'] = df['Close'].ewm(span=20, adjust=False).mean()
+        
+        # RSI
+        df = add_rsi_indicator(df)
+        
+        # Bollinger Bands
+        df = add_bollinger_bands(df)
+        
+        # Volume indicators
+        if 'Volume' in df.columns:
+            df['Volume_SMA'] = df['Volume'].rolling(window=20, min_periods=1).mean()
+            df['Volume_Ratio'] = df['Volume'] / df['Volume_SMA']
+        
+        # ATR (Average True Range)
+        df = add_atr_indicator(df)
+        
+        print(f"✅ Technical indicators added successfully")
+        return df
+        
+    except Exception as e:
+        print(f"❌ Error adding technical indicators: {e}")
+        return df
+
+
+def add_rsi_indicator(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Add RSI indicator to DataFrame"""
+    try:
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
+        
+        rs = gain / loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+        
+        return df
+    except Exception as e:
+        print(f"⚠️ Error adding RSI: {e}")
+        return df
+
+
+def add_bollinger_bands(df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
+    """Add Bollinger Bands to DataFrame"""
+    try:
+        # Use appropriate period based on data length
+        actual_period = min(period, len(df))
+        
+        sma = df['Close'].rolling(window=actual_period, min_periods=1).mean()
+        std = df['Close'].rolling(window=actual_period, min_periods=1).std()
+        
+        df['BB_Upper'] = sma + (std * std_dev)
+        df['BB_Lower'] = sma - (std * std_dev)
+        df['BB_Middle'] = sma
+        
+        # Band width and position
+        df['BB_Width'] = ((df['BB_Upper'] - df['BB_Lower']) / df['BB_Middle']) * 100
+        df['BB_Position'] = (df['Close'] - df['BB_Lower']) / (df['BB_Upper'] - df['BB_Lower'])
+        
+        return df
+    except Exception as e:
+        print(f"⚠️ Error adding Bollinger Bands: {e}")
+        return df
+
+
+def add_atr_indicator(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """Add Average True Range (ATR) indicator"""
+    try:
+        if len(df) < 2:
+            return df
+            
+        high_low = df['High'] - df['Low']
+        high_close = abs(df['High'] - df['Close'].shift())
+        low_close = abs(df['Low'] - df['Close'].shift())
+        
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        df['ATR'] = true_range.rolling(window=min(period, len(df)), min_periods=1).mean()
+        
+        return df
+    except Exception as e:
+        print(f"⚠️ Error adding ATR: {e}")
+        return df
 
 
 def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
@@ -98,7 +424,7 @@ def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
 
 def get_global_market_overview() -> Dict[str, Dict]:
     """
-    Get current prices of global market indicators with bid/ask/day-over-day data
+    Get current prices of global market indicators with enhanced day-over-day data from yfinance
     
     Returns:
     Dict with symbols as keys and market data as values
@@ -108,25 +434,32 @@ def get_global_market_overview() -> Dict[str, Dict]:
     print(f"🌍 Fetching global market overview for: {', '.join(symbols)}")
     
     try:
+        # Get basic market data from TastyTrade
         market_data = get_market_overview(symbols=symbols, force_refresh=True)
         
-        # Format for consistency
+        # Get enhanced day changes from yfinance
+        day_changes = get_day_changes_yfinance(symbols)
+        
+        # Format for consistency with enhanced day change data
         formatted_data = {}
         for symbol, data in market_data.items():
             if data:
+                # Use yfinance day change data if available, otherwise TastyTrade defaults
+                yf_data = day_changes.get(symbol, {})
+                
                 formatted_data[symbol] = {
                     'symbol': symbol,
-                    'current_price': data.get('current_price', 0.0),
+                    'current_price': yf_data.get('current_price', data.get('current_price', 0.0)),
                     'bid': data.get('bid', 0.0),
                     'ask': data.get('ask', 0.0),
-                    'day_change': data.get('day_change', 0.0),
-                    'day_change_percent': data.get('day_change_percent', 0.0),
+                    'day_change': yf_data.get('day_change', data.get('day_change', 0.0)),
+                    'day_change_percent': yf_data.get('day_change_percent', data.get('day_change_percent', 0.0)),
                     'volume': data.get('volume', 0),
                     'timestamp': data.get('timestamp', datetime.now().isoformat()),
-                    'source': 'tastytrade'
+                    'source': 'tastytrade_with_yfinance_daychange'
                 }
         
-        print(f"✅ Got global market data for {len(formatted_data)} symbols")
+        print(f"✅ Got global market data for {len(formatted_data)} symbols with enhanced day changes")
         return formatted_data
         
     except Exception as e:
@@ -136,7 +469,7 @@ def get_global_market_overview() -> Dict[str, Dict]:
 
 def get_spy_giants_overview() -> Dict[str, Dict]:
     """
-    Get current prices of SPY's largest holdings with bid/ask/day-over-day data
+    Get current prices of SPY's largest holdings with enhanced day-over-day data from yfinance
     
     Returns:
     Dict with symbols as keys and market data as values  
@@ -146,25 +479,32 @@ def get_spy_giants_overview() -> Dict[str, Dict]:
     print(f"🏢 Fetching SPY giants overview for: {', '.join(spy_giants)}")
     
     try:
+        # Get basic market data from TastyTrade
         market_data = get_market_overview(symbols=spy_giants, force_refresh=True)
         
-        # Format for consistency
+        # Get enhanced day changes from yfinance
+        day_changes = get_day_changes_yfinance(spy_giants)
+        
+        # Format for consistency with enhanced day change data
         formatted_data = {}
         for symbol, data in market_data.items():
             if data:
+                # Use yfinance day change data if available, otherwise TastyTrade defaults
+                yf_data = day_changes.get(symbol, {})
+                
                 formatted_data[symbol] = {
                     'symbol': symbol,
-                    'current_price': data.get('current_price', 0.0),
+                    'current_price': yf_data.get('current_price', data.get('current_price', 0.0)),
                     'bid': data.get('bid', 0.0),
                     'ask': data.get('ask', 0.0),
-                    'day_change': data.get('day_change', 0.0),
-                    'day_change_percent': data.get('day_change_percent', 0.0),
+                    'day_change': yf_data.get('day_change', data.get('day_change', 0.0)),
+                    'day_change_percent': yf_data.get('day_change_percent', data.get('day_change_percent', 0.0)),
                     'volume': data.get('volume', 0),
                     'timestamp': data.get('timestamp', datetime.now().isoformat()),
-                    'source': 'tastytrade'
+                    'source': 'tastytrade_with_yfinance_daychange'
                 }
         
-        print(f"✅ Got SPY giants data for {len(formatted_data)} symbols")
+        print(f"✅ Got SPY giants data for {len(formatted_data)} symbols with enhanced day changes")
         return formatted_data
         
     except Exception as e:
@@ -174,18 +514,18 @@ def get_spy_giants_overview() -> Dict[str, Dict]:
 
 def get_ticker_30min_data(ticker: str) -> Dict[str, Any]:
     """
-    Get last 30 minutes of ticker data in one-minute intervals
+    Get last 30 minutes of ticker data with enhanced technical analysis
     
     Parameters:
     ticker: Stock symbol to get data for
     
     Returns:
-    Dict containing recent price data and summary statistics
+    Dict containing recent price data and enhanced technical analysis
     """
     print(f"📊 Fetching last 30 minutes of {ticker} data...")
     
     try:
-        # Get recent data with 1-minute intervals for last 30 minutes
+        # Get recent data from TastyTrade
         ticker_data = get_ticker_recent_data(
             ticker=ticker, 
             period="1d", 
@@ -194,124 +534,102 @@ def get_ticker_30min_data(ticker: str) -> Dict[str, Any]:
         )
         
         if not ticker_data:
-            print(f"❌ No recent data available for {ticker}")
-            return {}
+            print(f"❌ No recent data available for {ticker} from TastyTrade")
+            ticker_data = {}
         
-        # Extract key information
+        # Get enhanced technical analysis from yfinance
+        print(f"📈 Getting enhanced technical analysis for {ticker}...")
+        enhanced_data = get_enhanced_historical_data(ticker, dte=0)
+        
+        if enhanced_data is not None and not enhanced_data.empty:
+            latest = enhanced_data.iloc[-1]
+            
+            # Enhanced technical indicators from yfinance
+            enhanced_technical = {
+                'rsi': float(latest.get('RSI', 50.0)),
+                'bb_position': float(latest.get('BB_Position', 0.5)),
+                'bb_upper': float(latest.get('BB_Upper', 0)),
+                'bb_lower': float(latest.get('BB_Lower', 0)),
+                'bb_width': float(latest.get('BB_Width', 0)),
+                'sma_20': float(latest.get('SMA_20', 0)),
+                'sma_50': float(latest.get('SMA_50', 0)),
+                'ema_10': float(latest.get('EMA_10', 0)),
+                'ema_20': float(latest.get('EMA_20', 0)),
+                'volume_ratio': float(latest.get('Volume_Ratio', 1.0)),
+                'atr': float(latest.get('ATR', 0)),
+                'data_source': 'yfinance_enhanced'
+            }
+        else:
+            print(f"⚠️ Using fallback technical indicators for {ticker}")
+            enhanced_technical = {
+                'rsi': 50.0,
+                'bb_position': 0.5,
+                'bb_upper': 0,
+                'bb_lower': 0,
+                'bb_width': 0,
+                'sma_20': 0,
+                'sma_50': 0,
+                'ema_10': 0,
+                'ema_20': 0,
+                'volume_ratio': 1.0,
+                'atr': 0,
+                'data_source': 'fallback'
+            }
+        
+        # Extract key information with yfinance fallback for current price
+        current_price = ticker_data.get('current_price', 0.0)
+        
+        # If TastyTrade failed to get current price, use yfinance data as fallback
+        if current_price == 0.0 and enhanced_data is not None and not enhanced_data.empty:
+            yf_current_price = float(enhanced_data['Close'].iloc[-1])
+            print(f"🔄 TastyTrade current_price unavailable, using yfinance fallback: ${yf_current_price:.2f}")
+            current_price = yf_current_price
+            
+            # Also get volume and other price data from yfinance
+            if ticker_data.get('volume', 0) == 0:
+                yf_volume = int(enhanced_data['Volume'].iloc[-1])
+                ticker_data['volume'] = yf_volume
+                print(f"🔄 Using yfinance volume: {yf_volume:,}")
+            
+            # Update price change calculations using yfinance data
+            if len(enhanced_data) >= 2:
+                prev_close = float(enhanced_data['Close'].iloc[-2])
+                price_change = current_price - prev_close
+                price_change_pct = (price_change / prev_close * 100) if prev_close != 0 else 0
+                ticker_data['price_change'] = price_change
+                ticker_data['price_change_pct'] = price_change_pct
+                print(f"🔄 Using yfinance price change: ${price_change:.2f} ({price_change_pct:+.2f}%)")
+        
         result = {
             'ticker': ticker,
-            'current_price': ticker_data.get('current_price', 0.0),
+            'current_price': current_price,
             'price_change': ticker_data.get('price_change', 0.0),
             'price_change_pct': ticker_data.get('price_change_pct', 0.0),
             'volume': ticker_data.get('volume', 0),
             'timestamp': ticker_data.get('timestamp', datetime.now().isoformat()),
             'data_points': len(ticker_data.get('historical_data', [])),
             'period_summary': {
-                'high': ticker_data.get('high', 0.0),
-                'low': ticker_data.get('low', 0.0),
-                'open': ticker_data.get('open', 0.0),
-                'close': ticker_data.get('current_price', 0.0),
-                'vwap': ticker_data.get('vwap', 0.0)
+                'high': ticker_data.get('high', current_price),
+                'low': ticker_data.get('low', current_price),
+                'open': ticker_data.get('open', current_price),
+                'close': current_price,
+                'vwap': ticker_data.get('vwap', current_price)
             },
-            'technical_indicators': ticker_data.get('technical_indicators', {}),
-            'source': 'tastytrade'
+            'technical_indicators': enhanced_technical,
+            'source': 'yfinance_fallback' if current_price != ticker_data.get('current_price', 0.0) else 'tastytrade_with_yfinance_technical'
         }
         
-        print(f"✅ Got {result['data_points']} data points for {ticker} over last 30 minutes")
+        # Check if we have valid current price data
+        if current_price == 0.0:
+            print(f"❌ Failed to get current price for {ticker} from both TastyTrade and yfinance")
+            print(f"⚠️ Using fallback data structure with technical indicators only")
+        
+        print(f"✅ Got {result['data_points']} data points for {ticker} with enhanced technical analysis")
+        print(f"💰 Current price: ${current_price:.2f}" if current_price > 0 else "❌ No current price available")
         return result
         
     except Exception as e:
-        print(f"❌ Error fetching {ticker} 30-minute data: {e}")
-        return {}
-
-
-def get_options_chain_data(ticker: str, dte: int, current_price: Optional[float] = None) -> Dict[str, Any]:
-    """
-    Get options chain data for specified DTE with strikes within 5% of current price
-    
-    Parameters:
-    ticker: Stock symbol
-    dte: Days to expiration
-    current_price: Current stock price (will fetch if not provided)
-    
-    Returns:
-    Dict containing calls and puts with price and volume data
-    """
-    print(f"⚙️ Fetching {ticker} options chain for {dte}DTE...")
-    
-    try:
-        # Get current price if not provided
-        if current_price is None:
-            current_price = get_current_price(ticker)
-            
-        if not current_price:
-            print(f"❌ Could not get current price for {ticker}")
-            return {}
-        
-        # Calculate 5% strike range
-        strike_range = {
-            'min': current_price * 0.95,  # 5% below
-            'max': current_price * 1.05   # 5% above
-        }
-        
-        print(f"📈 Current {ticker} price: ${current_price:.2f}")
-        print(f"🎯 Strike range: ${strike_range['min']:.2f} - ${strike_range['max']:.2f}")
-        
-        # Get options chain
-        options_data = get_options_chain(
-            ticker=ticker,
-            dte=dte,
-            strike_range=strike_range,
-            limit=100  # Get more options to ensure we capture the range
-        )
-        
-        if not options_data:
-            print(f"❌ No options data available for {ticker} {dte}DTE")
-            return {}
-        
-        # Extract and format options data
-        calls = []
-        puts = []
-        
-        # Process the options data (format depends on what get_options_chain returns)
-        if 'options' in options_data:
-            for option in options_data['options']:
-                option_info = {
-                    'strike': option.get('strike_price', 0.0),
-                    'bid': option.get('bid', 0.0),
-                    'ask': option.get('ask', 0.0),
-                    'last_price': option.get('last_price', 0.0),
-                    'volume': option.get('volume', 0),
-                    'open_interest': option.get('open_interest', 0),
-                    'implied_volatility': option.get('implied_volatility', 0.0),
-                    'delta': option.get('delta', 0.0),
-                    'gamma': option.get('gamma', 0.0),
-                    'theta': option.get('theta', 0.0),
-                    'vega': option.get('vega', 0.0)
-                }
-                
-                if option.get('option_type', '').lower() == 'call':
-                    calls.append(option_info)
-                elif option.get('option_type', '').lower() == 'put':
-                    puts.append(option_info)
-        
-        result = {
-            'ticker': ticker,
-            'dte': dte,
-            'current_price': current_price,
-            'strike_range': strike_range,
-            'calls': sorted(calls, key=lambda x: x['strike']),
-            'puts': sorted(puts, key=lambda x: x['strike']),
-            'total_options': len(calls) + len(puts),
-            'timestamp': datetime.now().isoformat(),
-            'source': 'tastytrade'
-        }
-        
-        print(f"✅ Got {len(calls)} calls and {len(puts)} puts for {ticker} {dte}DTE")
-        return result
-        
-    except Exception as e:
-        print(f"❌ Error fetching {ticker} options chain: {e}")
+        print(f"❌ Error fetching {ticker} enhanced data: {e}")
         return {}
 
 
@@ -363,7 +681,30 @@ def get_streamlined_market_data(ticker: str, dte: int) -> Dict[str, Any]:
         # 4. Options chain data
         print(f"\n4️⃣ Fetching {ticker} options chain...")
         current_price = result['ticker_data'].get('current_price')
-        result['options_chain'] = get_options_chain_data_v2(ticker, dte, current_price)
+        print(f"🔍 [LOGGING] About to call get_options_chain_data with:")
+        print(f"   📊 ticker: {ticker}")
+        print(f"   📊 dte: {dte}")
+        print(f"   📊 current_price: ${current_price:.2f}" if current_price else "   📊 current_price: None")
+        
+        result['options_chain'] = get_options_chain_data(ticker, dte, current_price)
+        
+        print(f"🔍 [LOGGING] get_options_chain_data returned:")
+        options_chain = result['options_chain']
+        if options_chain:
+            calls = options_chain.get('calls', [])
+            puts = options_chain.get('puts', [])
+            print(f"   📊 calls: {len(calls)}")
+            print(f"   📊 puts: {len(puts)}")
+            if calls:
+                call_strikes = [c.get('strike', 0) for c in calls[:5]]
+                print(f"   📊 sample call strikes: {call_strikes}")
+            if puts:
+                put_strikes = [p.get('strike', 0) for p in puts[:5]]
+                print(f"   📊 sample put strikes: {put_strikes}")
+            else:
+                print(f"   ❌ No puts returned from get_options_chain_data!")
+        else:
+            print(f"   ❌ Empty options_chain returned!")
         
         print(f"\n✅ Successfully gathered streamlined market data for {ticker} {dte}DTE")
         print(f"📊 Data summary:")
@@ -381,523 +722,6 @@ def get_streamlined_market_data(ticker: str, dte: int) -> Dict[str, Any]:
         return result
 
 
-def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
-    """
-    Get compact options chain from TastyTrade API
-    
-    Returns:
-    Dict with 'success' boolean and 'symbols' list
-    """
-    print(f"📋 Fetching compact options chain for {ticker}...")
-    
-    try:
-        import requests
-        from config import TT_API_BASE_URL as TT_BASE_URL
-        
-        # Get authentication headers
-        headers = get_authenticated_headers()
-        if not headers:
-            print("❌ No access token available")
-            return {'success': False, 'symbols': []}
-        
-        url = f"{TT_BASE_URL}/option-chains/{ticker}/compact"
-        
-        print(f"🔗 Calling: {url}")
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        print(f"🔍 Checking compact response structure...")
-        print(f"🔍 Response keys available: {len(list(data.keys())) if isinstance(data, dict) else 0}")
-        
-        if 'data' in data and 'items' in data['data'] and data['data']['items']:
-            raw_items = data['data']['items']
-            print(f"📋 Found {len(raw_items) if raw_items else 0} option items")
-            
-            # Extract symbols from the data structure
-            symbols = []
-            if isinstance(raw_items, list):
-                for item in raw_items:
-                    if isinstance(item, dict):
-                        # If it's a dict, look for symbols in the 'symbols' field
-                        if 'symbols' in item and isinstance(item['symbols'], list):
-                            symbols.extend(item['symbols'])
-                        else:
-                            print(f"⚠️ Unexpected item structure: {item}")
-                    elif isinstance(item, str):
-                        # If it's already a string symbol, use it directly
-                        symbols.append(item)
-                    else:
-                        print(f"⚠️ Unknown item type: {type(item)} - {item}")
-            
-            print(f"✅ Extracted {len(symbols)} option symbols for {ticker}")
-            print(f"🔍 Sample extracted symbols: {symbols[:5] if symbols else 'None'}")
-            return {'success': True, 'symbols': symbols}
-        else:
-            print(f"❌ No option symbols found in response for {ticker}")
-            return {'success': False, 'symbols': []}
-            
-    except Exception as e:
-        print(f"❌ Error fetching compact options chain for {ticker}: {e}")
-        import traceback
-        traceback.print_exc()
-        return {'success': False, 'symbols': []}
-
-
-def parse_option_symbol(symbol: str) -> Optional[Dict[str, Any]]:
-    """
-    Parse a TastyTrade option symbol into components
-    
-    Format: 'SPY   250919C00630000'
-    - SPY: underlying
-    - 250919: expiration date (YYMMDD)
-    - C/P: call/put
-    - 00630000: strike price * 1000
-    """
-    try:
-        # Validate input type
-        if not isinstance(symbol, str):
-            print(f"⚠️ Expected string symbol, got {type(symbol)}: {symbol}")
-            return None
-            
-        import re
-        
-        # Pattern for TastyTrade option symbols
-        pattern = r'([A-Z]+)\s+(\d{6})([CP])(\d{8})'
-        match = re.match(pattern, symbol)
-        
-        if not match:
-            print(f"⚠️ Symbol doesn't match expected pattern: '{symbol}'")
-            return None
-            
-        if len(symbol) < 18:
-            print(f"⚠️ Symbol too short ({len(symbol)} chars): '{symbol}'")
-            return None
-            
-        # Extract parts
-        underlying = symbol[:3].strip()  # SPY
-        date_part = symbol[6:12]  # YYMMDD
-        option_type = symbol[12]  # C or P
-        strike_part = symbol[13:21]  # Strike price * 1000
-        
-        # Parse expiration date (keep in compact format for filtering)
-        year = 2000 + int(date_part[:2])
-        month = int(date_part[2:4])
-        day = int(date_part[4:6])
-        expiration_full = f"{year:04d}-{month:02d}-{day:02d}"  # Full format for display
-        expiration_compact = date_part  # Keep original YYMMDD format for filtering
-        
-        # Parse strike price (divide by 1000)
-        strike_raw = int(strike_part)
-        strike = strike_raw / 1000.0
-        
-        # Parse option type
-        option_type_full = "call" if option_type.upper() == "C" else "put"
-        
-        return {
-            'symbol': symbol,
-            'underlying': underlying,
-            'expiration': expiration_compact,  # Use compact format for filtering
-            'expiration_full': expiration_full,  # Keep full format for display
-            'option_type': option_type_full,
-            'strike': strike,
-            'strike_raw': strike_raw
-        }
-        
-    except Exception as e:
-        print(f"⚠️ Failed to parse option symbol {symbol}: {e}")
-        return None
-
-
-def get_spy_expiration_date(dte: int) -> str:
-    """
-    Get the correct SPY expiration date for a given DTE.
-    SPY options expire on Fridays (with some exceptions for holidays/monthlies).
-    
-    For SPY, we need to find the Friday that is closest to but >= DTE days from today.
-    
-    Parameters:
-    dte: Days to expiration requested
-    
-    Returns:
-    String in 'YYMMDD' format for the target expiration
-    """
-    from datetime import datetime, timedelta
-    
-    today = datetime.now()
-    print(f"📅 Today is {today.strftime('%A, %Y-%m-%d')}")
-    
-    if dte == 0:
-        # 0DTE means same day - but only works on expiration days (usually Friday)
-        target_date = today
-        print(f"🎯 0DTE requested: using today ({target_date.strftime('%Y-%m-%d')})")
-    else:
-        # Find all upcoming Fridays and pick the one closest to DTE days away
-        upcoming_fridays = []
-        
-        # Look ahead up to 8 weeks to find Fridays
-        for weeks_ahead in range(8):
-            # Start from today and find the next Friday
-            current_date = today + timedelta(days=7 * weeks_ahead)
-            
-            # Find the Friday of this week
-            days_until_friday = (4 - current_date.weekday()) % 7
-            if current_date.weekday() > 4 or (current_date.weekday() == 4 and weeks_ahead == 0):
-                # If we're past Friday this week, or it's Friday and we're looking at this week,
-                # move to next Friday
-                days_until_friday += 7
-            
-            friday_date = current_date + timedelta(days=days_until_friday)
-            days_from_today = (friday_date - today).days
-            
-            if days_from_today >= dte:
-                upcoming_fridays.append((friday_date, days_from_today))
-        
-        # Pick the Friday that's closest to our target DTE
-        if upcoming_fridays:
-            target_date = min(upcoming_fridays, key=lambda x: abs(x[1] - dte))[0]
-            actual_dte = (target_date - today).days
-            print(f"🎯 {dte}DTE requested: targeting Friday {target_date.strftime('%Y-%m-%d')} (actual {actual_dte}DTE)")
-        else:
-            # Fallback - just add DTE days and find nearest Friday
-            target_date = today + timedelta(days=dte)
-            current_weekday = target_date.weekday()
-            if current_weekday != 4:  # Not Friday
-                if current_weekday < 4:
-                    target_date += timedelta(days=4 - current_weekday)
-                else:
-                    target_date += timedelta(days=7 - current_weekday + 4)
-            print(f"🎯 {dte}DTE requested: fallback to Friday {target_date.strftime('%Y-%m-%d')}")
-    
-    target_str = target_date.strftime('%y%m%d')
-    print(f"🎯 Target expiration string: {target_str}")
-    return target_str
-
-
-def filter_options_by_criteria(symbols: List[str], current_price: float, dte: int, strike_range_pct: float = None) -> Dict[str, List[str]]:
-    """
-    Filter option symbols based on expiration date and strike range
-    
-    Parameters:
-    symbols: List of option symbols
-    current_price: Current stock price
-    dte: Days to expiration target
-    strike_range_pct: Strike range percentage (default varies by DTE)
-    
-    Returns:
-    Dict with 'calls' and 'puts' lists of filtered symbols
-    """
-    # Set default strike range based on DTE
-    if strike_range_pct is None:
-        if dte == 0:
-            strike_range_pct = 0.08  # 8% for 0DTE (wider range)
-        elif dte <= 2:
-            strike_range_pct = 0.06  # 6% for 1-2DTE
-        else:
-            strike_range_pct = 0.05  # 5% for longer DTE
-    
-    print(f"🔍 Filtering options for {dte}DTE, price ${current_price:.2f}, range ±{strike_range_pct*100:.1f}%...")
-    
-    # Debug: Check what we're starting with
-    print(f"🔍 Total symbols to filter: {len(symbols)}")
-    if len(symbols) > 0:
-        print(f"🔍 First few symbols: {symbols[:5]}")
-    else:
-        print("❌ No symbols provided to filter!")
-        return {'calls': [], 'puts': [], 'target_date': '', 'strike_range': {'min': 0, 'max': 0}}
-    
-    # Get the correct SPY expiration date for the requested DTE
-    target_str = get_spy_expiration_date(dte)
-    
-    # Calculate strike range (FIXED: use ± not *)
-    strike_range = current_price * strike_range_pct
-    min_strike = current_price - strike_range  # Fixed: was current_price * (1 - strike_range_pct)
-    max_strike = current_price + strike_range  # Fixed: was current_price * (1 + strike_range_pct)
-    
-    print(f"🎯 Strike range: ${min_strike:.2f} - ${max_strike:.2f}")
-    
-    calls = []
-    puts = []
-    expiration_dates_seen = set()
-    strikes_seen = set()
-    
-    for symbol in symbols:
-        parsed = parse_option_symbol(symbol)
-        if not parsed:
-            continue
-            
-        # Track what we're seeing for debugging
-        expiration_dates_seen.add(parsed['expiration'])
-        strikes_seen.add(parsed['strike'])
-        
-        # Check expiration date
-        if parsed['expiration'] != target_str:
-            # Debug: show what we're comparing
-            if len(calls) == 0 and len(puts) == 0:  # Only log for first few mismatches
-                print(f"🔍 Date mismatch: found '{parsed['expiration']}' vs target '{target_str}' for symbol {symbol}")
-            continue
-            
-        # Check strike range
-        if not (min_strike <= parsed['strike'] <= max_strike):
-            continue
-            
-        # Add to appropriate list
-        if parsed['option_type'] == 'call':
-            calls.append(symbol)
-        else:
-            puts.append(symbol)
-    
-    # Debug information
-    print(f"🔍 Expiration dates found: {sorted(list(expiration_dates_seen))[:10]}")
-    print(f"🔍 Strike prices found: {sorted(list(strikes_seen))[:10]}")
-    print(f"✅ Filtered to {len(calls)} calls and {len(puts)} puts")
-    
-    return {
-        'calls': calls,
-        'puts': puts,
-        'target_date': target_str,
-        'strike_range': {'min': min_strike, 'max': max_strike}
-    }
-
-
-def get_options_market_data(option_symbols: List[str]) -> Dict[str, Dict]:
-    """
-    Get market data for multiple option symbols using individual API calls
-    (matches the working dashboard pattern)
-    """
-    if not option_symbols:
-        print("❌ No option symbols provided to get_options_market_data")
-        return {}
-    
-    print(f"💰 Fetching market data for {len(option_symbols)} option symbols...")
-    
-    try:
-        import requests
-        from config import TT_API_BASE_URL as TT_BASE_URL
-        
-        # Get authentication headers
-        headers = get_authenticated_headers()
-        if not headers:
-            print(f"❌ Could not get authentication headers")
-            return {}
-        
-        result = {}
-        successful_calls = 0
-        failed_calls = 0
-        
-        # Make individual calls for each symbol (matches working dashboard pattern)
-        for i, symbol in enumerate(option_symbols):
-            try:
-                url = f"{TT_BASE_URL}/market-data/{symbol}"
-                if i < 3:  # Show details for first 3 calls
-                    print(f"🔗 Calling ({i+1}/{len(option_symbols)}): {url}")
-                
-                response = requests.get(url, headers=headers)
-                
-                if i < 3:  # Show response details for first 3 calls
-                    print(f"📡 Response status: {response.status_code}")
-                
-                response.raise_for_status()
-                data = response.json()
-                
-                if i < 3:  # Log status for first 3 calls
-                    print(f"� Processing option {i+1}: Status {response.status_code}")
-                    if 'data' in data and data['data']:
-                        print(f"� Data structure contains expected fields")
-                
-                # Process the individual response
-                if 'data' in data and data['data']:
-                    item = data['data']
-                    
-                    # Debug: show what fields are available
-                    if i < 2:
-                        print(f"🔍 Available fields for {symbol}: {list(item.keys())}")
-                        print(f"🔍 Volume field: {item.get('volume', 'NOT_FOUND')}")
-                        print(f"🔍 Open Interest field: {item.get('open-interest', 'NOT_FOUND')}")
-                    
-                    result[symbol] = {
-                        'symbol': symbol,
-                        'bid': float(item.get('bid', 0)),
-                        'ask': float(item.get('ask', 0)),
-                        'last': float(item.get('last', 0)),
-                        'bid_size': int(item.get('bid-size', 0)),
-                        'ask_size': int(item.get('ask-size', 0)),
-                        'volume': int(item.get('volume', 0)),
-                        'open_interest': int(item.get('open-interest', 0)),
-                        'mark': float(item.get('mark', 0)),
-                        'timestamp': item.get('updated-at', datetime.now().isoformat())
-                    }
-                    successful_calls += 1
-                    if i < 3:  # Show data for first 3 successful calls
-                        print(f"✅ Got data for {symbol}: bid=${item.get('bid', 0)}, ask=${item.get('ask', 0)}")
-                else:
-                    failed_calls += 1
-                    if i < 3:
-                        print(f"⚠️ No data field in response for {symbol}")
-                
-            except requests.exceptions.HTTPError as e:
-                failed_calls += 1
-                if i < 3:
-                    print(f"⚠️ HTTP error for {symbol}: {e}")
-                continue
-            except Exception as e:
-                failed_calls += 1
-                if i < 3:
-                    print(f"⚠️ Failed to get data for {symbol}: {e}")
-                continue
-        
-        print(f"✅ Market data results: {successful_calls} successful, {failed_calls} failed out of {len(option_symbols)} total")
-        return result
-        
-    except Exception as e:
-        print(f"❌ Error fetching options market data: {e}")
-        return {}
-
-
-def get_options_chain_data_v2(ticker: str, dte: int, current_price: Optional[float] = None) -> Dict[str, Any]:
-    """
-    Get options chain data using new compact approach with market data lookup
-    
-    Parameters:
-    ticker: Stock symbol
-    dte: Days to expiration
-    current_price: Current stock price (will fetch if not provided)
-    
-    Returns:
-    Dict containing calls and puts with price and volume data
-    """
-    print(f"⚙️ Fetching {ticker} options chain for {dte}DTE using compact approach...")
-    
-    try:
-        # Get current price if not provided
-        if current_price is None:
-            print(f"📈 Getting current price for {ticker}...")
-            current_price = get_current_price(ticker)
-            
-        if not current_price:
-            print(f"❌ Could not get current price for {ticker}")
-            return {}
-        
-        print(f"📈 Current {ticker} price: ${current_price:.2f}")
-        
-        # Step 1: Get compact options chain (all symbols)
-        print(f"📋 Step 1: Getting compact options chain...")
-        compact_chain = get_compact_options_chain(ticker)
-        if not compact_chain.get('success'):
-            print(f"❌ Failed to get compact options chain for {ticker}")
-            return {}
-        
-        all_symbols = compact_chain.get('symbols', [])
-        if not all_symbols:
-            print(f"❌ No option symbols found for {ticker}")
-            return {}
-        
-        print(f"✅ Got {len(all_symbols)} total option symbols")
-        print(f"🔍 Sample symbols: {all_symbols[:3] if all_symbols else 'None'}")
-        
-        # Debug: Let's see what format these symbols are in
-        if all_symbols:
-            for i, symbol in enumerate(all_symbols[:5]):
-                parsed = parse_option_symbol(symbol)
-                if parsed:
-                    print(f"🔍 Symbol {i+1}: {symbol} -> {parsed['expiration']} {parsed['option_type']} ${parsed['strike']}")
-                else:
-                    print(f"❌ Could not parse symbol {i+1}: {symbol}")
-        
-        # Step 2: Filter symbols by DTE and strike range
-        print(f"🔍 Step 2: Filtering symbols by {dte}DTE criteria...")
-        print(f"🔍 About to call filter_options_by_criteria with:")
-        print(f"   - {len(all_symbols)} symbols")
-        print(f"   - current_price: ${current_price:.2f}")
-        print(f"   - dte: {dte}")
-        
-        filtered_symbols = filter_options_by_criteria(all_symbols, current_price, dte)
-        
-        call_symbols = filtered_symbols['calls']
-        put_symbols = filtered_symbols['puts']
-        
-        print(f"🔍 Filter results: {len(call_symbols)} calls, {len(put_symbols)} puts")
-        
-        if not call_symbols and not put_symbols:
-            print(f"❌ No options found matching {dte}DTE criteria")
-            return {}
-        
-        # Step 3: Get market data for filtered symbols
-        print(f"💰 Step 3: Getting market data for {len(call_symbols + put_symbols)} symbols...")
-        all_filtered_symbols = call_symbols + put_symbols
-        market_data = get_options_market_data(all_filtered_symbols)
-        
-        print(f"💰 Market data retrieved for {len(market_data)} symbols")
-        
-        # Step 4: Organize data by calls/puts with parsed details
-        print(f"📊 Step 4: Organizing final data...")
-        calls = []
-        puts = []
-        
-        for symbol in call_symbols:
-            parsed = parse_option_symbol(symbol)
-            if parsed and symbol in market_data:
-                option_data = market_data[symbol].copy()
-                option_data.update({
-                    'strike': parsed['strike'],
-                    'expiration': parsed['expiration_full'],
-                    'option_type': parsed['option_type']
-                })
-                calls.append(option_data)
-        
-        for symbol in put_symbols:
-            parsed = parse_option_symbol(symbol)
-            if parsed and symbol in market_data:
-                option_data = market_data[symbol].copy()
-                option_data.update({
-                    'strike': parsed['strike'],
-                    'expiration': parsed['expiration_full'],
-                    'option_type': parsed['option_type']
-                })
-                puts.append(option_data)
-        
-        total_options = len(calls) + len(puts)
-        print(f"✅ Final result: {len(calls)} calls and {len(puts)} puts for {ticker} {dte}DTE")
-        
-        result = {
-            'calls': calls,
-            'puts': puts,
-            'total_options': total_options,
-            'current_price': current_price,
-            'target_date': filtered_symbols.get('target_date'),
-            'symbols_filtered': len(all_filtered_symbols),
-            'total_symbols_available': len(all_symbols)
-        }
-        
-        print(f"✅ Returning result with {total_options} total options")
-        return result
-        
-    except Exception as e:
-        print(f"❌ Error in get_options_chain_data_v2: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
-
-
-def get_authenticated_headers():
-    """Get authentication headers for TastyTrade API calls"""
-    try:
-        from tt import get_oauth_token
-        
-        token = get_oauth_token()
-        if not token:
-            print("❌ No access token available from tt.py")
-            return None
-            
-        print(f"✅ Got access token from tt.py: {token[:20]}...")
-        return {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json'
-        }
-    except Exception as e:
-        print(f"❌ Error getting auth headers: {e}")
-        return None
 
 
 # =============================================================================
@@ -977,9 +801,9 @@ def calculate_bollinger_bands(data, period: int = 20, std_dev: float = 2.0):
             'band_position': 50, 'price': 0, 'squeeze': False, 'breakout': False
         }
 
-def calculate_rsi(ticker: str, dte: int = 0, period: int = 14) -> Dict:
+def calculate_rsi_enhanced(ticker: str, dte: int = 0, period: int = 14) -> Dict:
     """
-    Enhanced RSI analysis with multi-timeframe precision and trend analysis
+    Enhanced RSI analysis using yfinance historical data for accurate calculations
     
     Parameters:
     ticker: Stock symbol
@@ -990,87 +814,215 @@ def calculate_rsi(ticker: str, dte: int = 0, period: int = 14) -> Dict:
     Dictionary with comprehensive RSI data
     """
     try:
-        from tt_data import get_historical_data_tastytrade
-        
-        # DTE-aware timeframe selection
-        if dte == 0:
-            timeframe_period = "1d"
-            timeframe_interval = "1m"
-        elif dte <= 3:
-            timeframe_period = "5d"
-            timeframe_interval = "5m"
-        elif dte <= 7:
-            timeframe_period = "10d"
-            timeframe_interval = "15m"
-        else:
-            timeframe_period = "1mo"
-            timeframe_interval = "1h"
-        
-        # Get historical data
-        historical_data = get_historical_data_tastytrade(
-            ticker, 
-            period=timeframe_period, 
-            interval=timeframe_interval
-        )
+        # Get enhanced historical data with technical indicators
+        historical_data = get_enhanced_historical_data(ticker, dte)
         
         if historical_data is None or historical_data.empty:
-            print(f"❌ No historical data for RSI calculation")
+            print(f"❌ No historical data for RSI calculation - using fallback")
             return {
                 'current_rsi': 50.0,
                 'trend': 'neutral',
                 'signal': 'hold',
-                'timeframe': f"{timeframe_period}_{timeframe_interval}",
-                'error': 'No historical data available'
+                'strength': 0.0,
+                'momentum': 'neutral',
+                'timeframe': f'dte_{dte}',
+                'error': 'No historical data available',
+                'data_source': 'fallback'
             }
         
-        # Calculate RSI
-        import pandas as pd
-        close_prices = historical_data['close'] if 'close' in historical_data.columns else historical_data.iloc[:, 0]
-        
-        # Calculate price changes
-        delta = close_prices.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period, min_periods=1).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period, min_periods=1).mean()
-        
-        # Calculate RS and RSI
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        current_rsi = rsi.iloc[-1] if len(rsi) > 0 else 50.0
-        
-        # Determine trend and signals
-        if current_rsi >= 70:
-            trend = 'overbought'
-            signal = 'sell'
-        elif current_rsi <= 30:
-            trend = 'oversold'
-            signal = 'buy'
-        elif current_rsi >= 60:
-            trend = 'bullish'
-            signal = 'hold'
-        elif current_rsi <= 40:
-            trend = 'bearish'
-            signal = 'hold'
+        # Get RSI from the pre-calculated technical indicators
+        if 'RSI' in historical_data.columns:
+            current_rsi = historical_data['RSI'].iloc[-1]
+            
+            # Calculate RSI momentum (rate of change)
+            if len(historical_data) >= 5:
+                rsi_5_ago = historical_data['RSI'].iloc[-5]
+                rsi_momentum = current_rsi - rsi_5_ago
+                momentum_strength = abs(rsi_momentum)
+            else:
+                rsi_momentum = 0
+                momentum_strength = 0
+            
+            # Enhanced trend analysis
+            if current_rsi >= 70:
+                if rsi_momentum > 2:
+                    trend = 'strongly_overbought'
+                    signal = 'strong_sell'
+                else:
+                    trend = 'overbought'
+                    signal = 'sell'
+            elif current_rsi <= 30:
+                if rsi_momentum < -2:
+                    trend = 'strongly_oversold'
+                    signal = 'strong_buy'
+                else:
+                    trend = 'oversold'
+                    signal = 'buy'
+            elif current_rsi >= 60:
+                trend = 'bullish'
+                signal = 'hold' if rsi_momentum < 0 else 'weak_buy'
+            elif current_rsi <= 40:
+                trend = 'bearish'
+                signal = 'hold' if rsi_momentum > 0 else 'weak_sell'
+            else:
+                trend = 'neutral'
+                signal = 'hold'
+            
+            # Determine momentum direction
+            if rsi_momentum > 1:
+                momentum = 'accelerating_up'
+            elif rsi_momentum < -1:
+                momentum = 'accelerating_down'
+            elif rsi_momentum > 0:
+                momentum = 'rising'
+            elif rsi_momentum < 0:
+                momentum = 'falling'
+            else:
+                momentum = 'neutral'
+            
+            return {
+                'current_rsi': float(current_rsi),
+                'trend': trend,
+                'signal': signal,
+                'strength': float(momentum_strength),
+                'momentum': momentum,
+                'timeframe': f'dte_{dte}',
+                'period': period,
+                'data_points': len(historical_data),
+                'data_source': 'yfinance'
+            }
         else:
-            trend = 'neutral'
-            signal = 'hold'
-        
-        return {
-            'current_rsi': float(current_rsi),
-            'trend': trend,
-            'signal': signal,
-            'timeframe': f"{timeframe_period}_{timeframe_interval}",
-            'period': period,
-            'data_points': len(close_prices)
-        }
+            print(f"❌ RSI not calculated in technical indicators")
+            return {
+                'current_rsi': 50.0,
+                'trend': 'neutral',
+                'signal': 'hold',
+                'error': 'RSI calculation failed'
+            }
         
     except Exception as e:
-        print(f"❌ Error calculating RSI: {e}")
+        print(f"❌ Error calculating enhanced RSI: {e}")
         return {
             'current_rsi': 50.0,
             'trend': 'neutral',
             'signal': 'hold',
             'error': str(e)
         }
+
+
+def get_enhanced_market_state(ticker: str, dte: int = 0) -> Optional[Dict]:
+    """
+    Get comprehensive market state using yfinance historical data
+    
+    Parameters:
+    ticker: Stock symbol
+    dte: Days to expiration
+    
+    Returns:
+    Dict with comprehensive market state analysis
+    """
+    try:
+        # Get enhanced historical data
+        data = get_enhanced_historical_data(ticker, dte)
+        
+        if data is None or data.empty:
+            print(f"❌ No data for market state analysis")
+            return None
+        
+        latest = data.iloc[-1]
+        current_price = latest['Close']
+        
+        # Get technical indicators
+        rsi = latest.get('RSI', 50.0)
+        bb_position = latest.get('BB_Position', 0.5)
+        bb_upper = latest.get('BB_Upper', current_price)
+        bb_lower = latest.get('BB_Lower', current_price)
+        bb_width = latest.get('BB_Width', 0)
+        
+        # Moving averages
+        sma_20 = latest.get('SMA_20', current_price)
+        sma_50 = latest.get('SMA_50', current_price)
+        ema_10 = latest.get('EMA_10', current_price)
+        ema_20 = latest.get('EMA_20', current_price)
+        
+        # Volume analysis
+        volume_ratio = latest.get('Volume_Ratio', 1.0)
+        atr = latest.get('ATR', 0)
+        
+        # Market state determination
+        if bb_width < 10:
+            market_state = 'Low Volatility Squeeze'
+        elif bb_position > 0.95:
+            market_state = 'Upper Bollinger Breakout'
+        elif bb_position < 0.05:
+            market_state = 'Lower Bollinger Breakout'
+        elif bb_position > 0.8:
+            market_state = 'Near Upper Band'
+        elif bb_position < 0.2:
+            market_state = 'Near Lower Band'
+        elif bb_width > 25:
+            market_state = 'High Volatility'
+        else:
+            market_state = 'Normal Range'
+        
+        # Trend analysis
+        sma_trend_strength = abs(sma_20 - sma_50) / sma_50 if sma_50 > 0 else 0
+        ema_trend_strength = abs(ema_10 - ema_20) / ema_20 if ema_20 > 0 else 0
+        
+        # Enhanced trend classification
+        if current_price > sma_20 > sma_50:
+            if sma_trend_strength > 0.02:
+                sma_trend = 'strong_bullish'
+            else:
+                sma_trend = 'bullish'
+        elif current_price < sma_20 < sma_50:
+            if sma_trend_strength > 0.02:
+                sma_trend = 'strong_bearish'
+            else:
+                sma_trend = 'bearish'
+        else:
+            sma_trend = 'neutral'
+        
+        if ema_10 > ema_20:
+            if ema_trend_strength > 0.015:
+                ema_trend = 'strong_bullish'
+            else:
+                ema_trend = 'bullish'
+        elif ema_10 < ema_20:
+            if ema_trend_strength > 0.015:
+                ema_trend = 'strong_bearish' 
+            else:
+                ema_trend = 'bearish'
+        else:
+            ema_trend = 'neutral'
+        
+        return {
+            'current_price': current_price,
+            'rsi': float(rsi),
+            'bb_position': float(bb_position),
+            'bb_upper': float(bb_upper),
+            'bb_lower': float(bb_lower),
+            'bb_width': float(bb_width),
+            'sma_20': float(sma_20),
+            'sma_50': float(sma_50),
+            'ema_10': float(ema_10),
+            'ema_20': float(ema_20),
+            'market_state': market_state,
+            'sma_trend': sma_trend,
+            'ema_trend': ema_trend,
+            'trend_strength_sma': float(sma_trend_strength),
+            'trend_strength_ema': float(ema_trend_strength),
+            'volume_ratio': float(volume_ratio),
+            'atr': float(atr),
+            'volatility_regime': 'high' if bb_width > 20 else 'low' if bb_width < 10 else 'normal',
+            'data_points': len(data),
+            'timestamp': latest.name.isoformat() if hasattr(latest.name, 'isoformat') else datetime.now().isoformat(),
+            'data_source': 'yfinance'
+        }
+        
+    except Exception as e:
+        logging.error(f"Error getting enhanced market state: {e}")
+        return None
 
 def get_market_overview_comprehensive(symbols: List[str] = None, force_refresh: bool = False) -> Dict[str, Dict]:
     """
@@ -1096,8 +1048,8 @@ def get_market_overview_comprehensive(symbols: List[str] = None, force_refresh: 
     for symbol in symbols:
         if symbol in market_data:
             try:
-                # Add RSI analysis
-                rsi_data = calculate_rsi(symbol, dte=0)
+                # Add RSI analysis using enhanced function
+                rsi_data = calculate_rsi_enhanced(symbol, dte=0)
                 market_data[symbol]['rsi'] = rsi_data
                 
                 # Add trend analysis based on RSI
@@ -1250,43 +1202,10 @@ class TechnicalAnalysisManager:
         self.ticker = ticker
         
     def calculate_rsi(self, period: int = 14) -> Dict:
-        """Calculate RSI using our market data infrastructure"""
+        """Calculate RSI using enhanced yfinance data"""
         try:
-            # Use our existing RSI calculation from market_data.py
-            from tt_data import get_historical_data
-            
-            # Get appropriate timeframe based on DTE
-            if self.dte == 0:
-                timeframe_period = "1d"
-                timeframe_interval = "1m"
-            elif self.dte <= 3:
-                timeframe_period = "5d"
-                timeframe_interval = "5m"
-            elif self.dte <= 7:
-                timeframe_period = "10d"
-                timeframe_interval = "15m"
-            else:
-                timeframe_period = "1mo"
-                timeframe_interval = "1h"
-            
-            # Get historical data
-            historical_data = get_historical_data(
-                self.ticker, 
-                period=timeframe_period, 
-                interval=timeframe_interval
-            )
-            
-            if historical_data is None or historical_data.empty:
-                return {
-                    'status': 'error',
-                    'current_rsi': 50.0,
-                    'interpretation': 'neutral',
-                    'trend': 'neutral',
-                    'signal': 'hold'
-                }
-            
-            # Use our existing calculate_rsi function
-            rsi_data = calculate_rsi(historical_data, period)
+            # Use the enhanced RSI calculation
+            rsi_data = calculate_rsi_enhanced(self.ticker, self.dte, period)
             
             # Format response to match expected interface
             current_rsi = rsi_data.get('current_rsi', 50.0)
@@ -1311,7 +1230,8 @@ class TechnicalAnalysisManager:
                 'interpretation': interpretation,
                 'trend': trend,
                 'signal': signal,
-                'timeframe': f"{timeframe_period}_{timeframe_interval}"
+                'timeframe': rsi_data.get('timeframe', f'dte_{self.dte}'),
+                'data_source': rsi_data.get('data_source', 'yfinance')
             }
             
         except Exception as e:

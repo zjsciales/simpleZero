@@ -1,0 +1,38 @@
+                            ### Market Analysis
+The SPY is currently at $666.00 with neutral trend but accelerating upward momentum and increasing volume, suggesting potential bullish continuation within the low-volatility expected range of $664.00 to $668.00. Heavy call options flow, particularly at the $666 strike, indicates strong buyer interest and limited downside pressure, making a credit put spread favorable in this 0DTE environment with high time decay. Given the low volatility and support at $664, a bull put spread positioned below current price aligns well with the market bias for stability or modest upside.
+
+```json
+{
+  "strategy_type": "BULL_PUT_SPREAD",
+  "confidence": 78,
+  "market_bias": "bullish",
+  "support_level": 664,
+  "resistance_level": 668,
+  "volatility_factor": "low",
+  "time_decay_impact": "favorable",
+  "price_momentum": "accelerating up",
+  "volume_pattern": "increasing",
+  "trade_setup": {
+    "short_put_strike": 664,
+    "long_put_strike": 662,
+    "credit_received": 0.28,
+    "expiration": "2025-09-23",
+    "max_profit": 28,
+    "max_loss": 172
+  },
+  "risk_metrics": {
+    "probability_of_profit": 72,
+    "reward_risk_ratio": 0.16,
+    "delta": -0.155,
+    "theta": 1.86,
+    "expected_profit": 20.16
+  },
+  "entry_conditions": {
+    "entry_price_range": "SPY between $664 and $668",
+    "volatility_condition": "daily move < 0.5% for stable environment",
+    "volume_requirement": "intraday volume > 1500000 shares",
+    "momentum_condition": "price accelerating up with RSI neutral at 50.0"
+  },
+  "reasoning": "Based on the accelerating upward price momentum from recent action ($665.85 to $666.10) and increasing volume patterns, combined with heavy call options flow (e.g., 263,145 volume on $666C vs. low put volumes), the market shows bullish bias in a low-volatility environment (0.0% daily move, Bollinger squeeze at 0.00% width). The expected range of $664.00-$668.00 supports positioning a bull put spread below the $664 support level to capitalize on stability or upside, with high time decay (theta positive) favoring the credit strategy in the remaining 2h 56m to expiry. Strikes selected (short 664 put at $0.38 bid, long 662 put at $0.10 ask) yield a $0.28 credit, optimizing for liquidity (high volumes on nearby puts like 664P at 158,052) and a favorable reward-risk profile; probability of profit estimated at 72% assuming SPY stays above $664, with neutral RSI (50.0) and normal volume ratio (1.0x) reducing downside risk in this neutral trend."
+}
+```
