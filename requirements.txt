@@ -8,3 +8,4 @@ pytest
 python-dotenv
 pytz
 yfinance
+websocket-client

@@ -44,6 +44,38 @@
         </div>
     </div>
 
+    <!-- Account Streaming Panel -->
+    {% if sandbox_authenticated %}
+    <div class="streaming-panel">
+        <h3>📡 Real-time Order Streaming</h3>
+        <div class="streaming-controls">
+            <div class="streaming-status" id="streamingStatus">
+                <span class="status-indicator" id="statusIndicator">⚫</span>
+                <span id="statusText">Checking status...</span>
+            </div>
+            
+            <div class="streaming-buttons">
+                <button id="startStreamingBtn" class="btn btn-success" onclick="startStreaming()">
+                    ▶️ Start Monitoring
+                </button>
+                <button id="stopStreamingBtn" class="btn btn-danger" onclick="stopStreaming()" style="display: none;">
+                    ⏹️ Stop Monitoring
+                </button>
+            </div>
+        </div>
+
+        <div class="streaming-updates" id="streamingUpdates" style="display: none;">
+            <h4>📊 Recent Updates</h4>
+            <div class="update-log" id="updateLog">
+                <div class="update-item">
+                    <span class="update-time">Ready to monitor...</span>
+                    <span class="update-text">Start streaming to see real-time order updates</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Parsed Trade Display -->
     {% if parsed_trade %}
     <div class="trade-display">
@@ -444,6 +476,112 @@
     padding: 20px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
+
+/* Streaming Panel Styles */
+.streaming-panel {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid #3b82f6;
+}
+
+.streaming-panel h3 {
+    margin: 0 0 15px 0;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+}
+
+.streaming-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+
+.streaming-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+}
+
+.status-indicator {
+    font-size: 12px;
+}
+
+.streaming-buttons {
+    display: flex;
+    gap: 10px;
+}
+
+.streaming-updates {
+    border-top: 1px solid #e5e7eb;
+    padding-top: 20px;
+}
+
+.streaming-updates h4 {
+    margin: 0 0 15px 0;
+    color: #374151;
+}
+
+.update-log {
+    max-height: 300px;
+    overflow-y: auto;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.update-item {
+    display: flex;
+    padding: 8px 0;
+    border-bottom: 1px solid #e5e7eb;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+}
+
+.update-item:last-child {
+    border-bottom: none;
+}
+
+.update-time {
+    color: #6b7280;
+    min-width: 80px;
+    margin-right: 10px;
+}
+
+.update-text {
+    color: #374151;
+    flex: 1;
+}
+
+.btn-success {
+    background: #10b981;
+    color: white;
+    border: 1px solid #10b981;
+}
+
+.btn-success:hover {
+    background: #059669;
+    border-color: #059669;
+}
+
+.btn-danger {
+    background: #ef4444;
+    color: white;
+    border: 1px solid #ef4444;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+    border-color: #dc2626;
+}
 </style>
 
 <script>
@@ -529,6 +667,183 @@ document.getElementById('executeTradeBtn')?.addEventListener('click', async func
         btn.textContent = '🚀 Execute Trade';
         btn.disabled = false;
     }
+});
+
+// =============================================================================
+// ACCOUNT STREAMING FUNCTIONS
+// =============================================================================
+
+let streamingActive = false;
+let updateInterval = null;
+
+async function checkStreamingStatus() {
+    try {
+        const response = await fetch('/api/streaming/status');
+        const data = await response.json();
+        
+        streamingActive = data.streaming_active;
+        updateStreamingUI(data);
+        
+        if (streamingActive) {
+            startUpdatePolling();
+        }
+        
+    } catch (error) {
+        console.error('Error checking streaming status:', error);
+        updateStreamingUI({streaming_active: false, error: error.message});
+    }
+}
+
+async function startStreaming() {
+    const btn = document.getElementById('startStreamingBtn');
+    const originalText = btn.textContent;
+    
+    try {
+        btn.textContent = '🔄 Starting...';
+        btn.disabled = true;
+        
+        const response = await fetch('/api/streaming/start', {method: 'POST'});
+        const data = await response.json();
+        
+        if (data.success) {
+            streamingActive = true;
+            updateStreamingUI({
+                streaming_active: true,
+                streamer_status: data.status,
+                accounts: data.accounts
+            });
+            startUpdatePolling();
+            
+            addUpdateLog('✅ Started', 'Account streaming started successfully');
+        } else {
+            throw new Error(data.error || 'Failed to start streaming');
+        }
+        
+    } catch (error) {
+        console.error('Error starting streaming:', error);
+        addUpdateLog('❌ Error', `Failed to start streaming: ${error.message}`);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+async function stopStreaming() {
+    const btn = document.getElementById('stopStreamingBtn');
+    const originalText = btn.textContent;
+    
+    try {
+        btn.textContent = '🔄 Stopping...';
+        btn.disabled = true;
+        
+        const response = await fetch('/api/streaming/stop', {method: 'POST'});
+        const data = await response.json();
+        
+        streamingActive = false;
+        stopUpdatePolling();
+        updateStreamingUI({streaming_active: false});
+        
+        addUpdateLog('⏹️ Stopped', 'Account streaming stopped');
+        
+    } catch (error) {
+        console.error('Error stopping streaming:', error);
+        addUpdateLog('❌ Error', `Failed to stop streaming: ${error.message}`);
+    } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
+    }
+}
+
+function updateStreamingUI(data) {
+    const statusIndicator = document.getElementById('statusIndicator');
+    const statusText = document.getElementById('statusText');
+    const startBtn = document.getElementById('startStreamingBtn');
+    const stopBtn = document.getElementById('stopStreamingBtn');
+    const updatesPanel = document.getElementById('streamingUpdates');
+    
+    if (data.streaming_active) {
+        statusIndicator.textContent = '🟢';
+        statusText.textContent = 'Connected & Monitoring';
+        startBtn.style.display = 'none';
+        stopBtn.style.display = 'inline-block';
+        updatesPanel.style.display = 'block';
+        
+        if (data.streamer_status && data.streamer_status.accounts) {
+            statusText.textContent += ` (${data.streamer_status.accounts.length} accounts)`;
+        }
+    } else {
+        statusIndicator.textContent = '🔴';
+        statusText.textContent = data.error ? `Error: ${data.error}` : 'Not Connected';
+        startBtn.style.display = 'inline-block';
+        stopBtn.style.display = 'none';
+        updatesPanel.style.display = 'block'; // Keep visible to show logs
+    }
+}
+
+function startUpdatePolling() {
+    if (updateInterval) clearInterval(updateInterval);
+    
+    updateInterval = setInterval(async () => {
+        if (!streamingActive) return;
+        
+        try {
+            const response = await fetch('/api/streaming/updates');
+            const data = await response.json();
+            
+            // Check for new order updates
+            if (data.orders && data.orders.order_data) {
+                const order = data.orders.order_data;
+                addUpdateLog('📋 Order', `Order ${order.id}: ${order.status}`);
+            }
+            
+            // Check for new fills
+            if (data.fills && data.fills.fill_data) {
+                const fill = data.fills.fill_data;
+                addUpdateLog('🎯 Fill', `Fill received: ${JSON.stringify(fill).substring(0, 100)}...`);
+            }
+            
+            // Check for balance updates
+            if (data.balances && data.balances.balance_data) {
+                const balance = data.balances.balance_data;
+                addUpdateLog('💰 Balance', `Balance updated for account ${balance['account-number']}`);
+            }
+            
+        } catch (error) {
+            console.error('Error polling updates:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+}
+
+function stopUpdatePolling() {
+    if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+    }
+}
+
+function addUpdateLog(type, message) {
+    const updateLog = document.getElementById('updateLog');
+    const timestamp = new Date().toLocaleTimeString();
+    
+    const updateItem = document.createElement('div');
+    updateItem.className = 'update-item';
+    updateItem.innerHTML = `
+        <span class="update-time">${timestamp}</span>
+        <span class="update-text">[${type}] ${message}</span>
+    `;
+    
+    // Add to top of log
+    updateLog.insertBefore(updateItem, updateLog.firstChild);
+    
+    // Keep only last 10 updates
+    while (updateLog.children.length > 10) {
+        updateLog.removeChild(updateLog.lastChild);
+    }
+}
+
+// Initialize streaming status check when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    checkStreamingStatus();
 });
 </script>
 {% endblock %}

@@ -1295,10 +1295,10 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 
 ## Hey Grok! 👋
 
-You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. We provided real-time data (below) and we need to use that for accuracy. Intended output is a JSON package that perfectly matches the examples at the end of our prompt.
+You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. Your goal is to create stable income, without incurring excessive risk (premium:max loss ration should be 1:4 or better). We provided real-time data (below) and we need to use that for accuracy. Intended output is a JSON package that perfectly matches the examples at the end of our prompt.
 
 We need an actionable trade, don't be afraid to give real trade advice that we can use in the market today.  
-
+ d
 ---
 
 ## Market Overview
@@ -1338,11 +1338,6 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 ## {ticker} Recent Price Action (Behavioral Analysis)
 {chr(10).join(price_action_lines)}
 
-### Behavioral Analysis
-- **Price Momentum:** {momentum}
-- **Volume Pattern:** {volume_pattern}
-- **Intraday Range:** {price_range}
-
 ## Live Options Volume Data ({dte_display})
 {enhanced_flow_summary}
 {chr(10).join(options_data_lines)}
@@ -1355,18 +1350,6 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 - Symbols After Filtering: {market_data.get('options_chain', {}).get('symbols_filtered', 0)} for {dte_display}
 - Current Price: ${market_data.get('options_chain', {}).get('current_price', current_price):.2f}
 - Target Date: {market_data.get('options_chain', {}).get('target_date', 'N/A')}
-
-**Most Active Call Options:**
-- Strike selection optimized for {dte_display} timeframe
-- Volume leaders indicate market sentiment and liquidity  
-- Focus on ATM and near-the-money strikes for best execution
-- Available Calls: {len(market_data.get('options_chain', {}).get('calls', []))}
-
-**Most Active Put Options:**
-- Downside protection positioning
-- Put volume concentration shows support levels
-- High volume puts indicate institutional hedging activity
-- Available Puts: {len(market_data.get('options_chain', {}).get('puts', []))}
 
 **Detailed Options Data ({dte_display}):**
 

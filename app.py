@@ -1096,6 +1096,225 @@ def auth_status():
             'error': str(e)
         })
 
+# =============================================================================
+# ACCOUNT STREAMING ENDPOINTS
+# =============================================================================
+
+# Global streamers store to manage multiple user sessions
+active_streamers = {}
+
+@app.route('/api/streaming/start', methods=['POST'])
+def start_account_streaming():
+    """Start real-time account streaming for the current user"""
+    try:
+        # Check sandbox authentication
+        sandbox_token = session.get('sandbox_access_token')
+        if not sandbox_token:
+            return jsonify({
+                'error': 'Sandbox authentication required for streaming',
+                'authenticated': False
+            }), 401
+        
+        # Get session ID
+        session_id = get_user_session_id()
+        
+        # Import streamer after ensuring it's available
+        from account_streamer import create_sandbox_streamer
+        
+        # Get sandbox account numbers from config/environment
+        sandbox_accounts = [config.TT_TRADING_ACCOUNT_NUMBER] if config.TT_TRADING_ACCOUNT_NUMBER else []
+        if not sandbox_accounts:
+            # Try to get from TastyTrade API
+            try:
+                from trader import TastyTradeAPI
+                api = TastyTradeAPI()
+                api.trading_token = sandbox_token
+                accounts = api.get_accounts()
+                if accounts and len(accounts) > 0:
+                    sandbox_accounts = [acc.get('account-number') for acc in accounts]
+            except Exception as e:
+                print(f"⚠️ Could not fetch account numbers: {e}")
+                sandbox_accounts = []
+        
+        # Stop existing streamer if present
+        if session_id in active_streamers:
+            try:
+                active_streamers[session_id].disconnect()
+                print(f"🔌 Stopped existing streamer for session {session_id[:8]}...")
+            except:
+                pass
+            del active_streamers[session_id]
+        
+        # Create and configure new streamer
+        streamer = create_sandbox_streamer(sandbox_token, sandbox_accounts)
+        
+        # Add custom handlers for order and fill monitoring
+        def order_handler(order_data, timestamp):
+            """Handle order updates"""
+            print(f"📝 Order Update - Session {session_id[:8]}: {order_data.get('id')} -> {order_data.get('status')}")
+            # Store order update in trade data
+            store_trade_data('latest_order_update', {
+                'order_data': order_data,
+                'timestamp': timestamp,
+                'received_at': datetime.now().isoformat()
+            })
+        
+        def fill_handler(fill_data, timestamp):
+            """Handle fill notifications"""
+            print(f"🎯 Fill Received - Session {session_id[:8]}: {fill_data}")
+            # Store fill notification
+            store_trade_data('latest_fill', {
+                'fill_data': fill_data,
+                'timestamp': timestamp,
+                'received_at': datetime.now().isoformat()
+            })
+        
+        def balance_handler(balance_data, timestamp):
+            """Handle balance updates"""
+            print(f"💰 Balance Update - Session {session_id[:8]}: {balance_data}")
+            # Store balance update
+            store_trade_data('latest_balance', {
+                'balance_data': balance_data,
+                'timestamp': timestamp,
+                'received_at': datetime.now().isoformat()
+            })
+        
+        # Set up handlers
+        streamer.set_order_handler(order_handler)
+        streamer.set_fill_handler(fill_handler)
+        streamer.set_balance_handler(balance_handler)
+        
+        # Connect to streamer
+        if streamer.connect():
+            active_streamers[session_id] = streamer
+            print(f"✅ Account streaming started for session {session_id[:8]}...")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Account streaming started successfully',
+                'accounts': sandbox_accounts,
+                'session_id': session_id[:8],
+                'status': streamer.get_status()
+            })
+        else:
+            return jsonify({
+                'error': 'Failed to connect to TastyTrade streamer',
+                'success': False
+            }), 500
+            
+    except Exception as e:
+        print(f"❌ Error starting account streaming: {e}")
+        return jsonify({
+            'error': f'Failed to start streaming: {str(e)}',
+            'success': False
+        }), 500
+
+@app.route('/api/streaming/stop', methods=['POST'])
+def stop_account_streaming():
+    """Stop account streaming for the current user"""
+    try:
+        session_id = get_user_session_id()
+        
+        if session_id in active_streamers:
+            streamer = active_streamers[session_id]
+            streamer.disconnect()
+            del active_streamers[session_id]
+            print(f"🔌 Stopped account streaming for session {session_id[:8]}...")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Account streaming stopped successfully'
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'message': 'No active streaming session found'
+            })
+            
+    except Exception as e:
+        print(f"❌ Error stopping account streaming: {e}")
+        return jsonify({
+            'error': f'Failed to stop streaming: {str(e)}',
+            'success': False
+        }), 500
+
+@app.route('/api/streaming/status')
+def get_streaming_status():
+    """Get current streaming status for the user"""
+    try:
+        session_id = get_user_session_id()
+        
+        if session_id in active_streamers:
+            streamer = active_streamers[session_id]
+            status = streamer.get_status()
+            
+            # Add recent updates from trade store
+            recent_updates = {
+                'latest_order': get_trade_data('latest_order_update'),
+                'latest_fill': get_trade_data('latest_fill'),
+                'latest_balance': get_trade_data('latest_balance')
+            }
+            
+            return jsonify({
+                'streaming_active': True,
+                'streamer_status': status,
+                'recent_updates': recent_updates,
+                'session_id': session_id[:8]
+            })
+        else:
+            return jsonify({
+                'streaming_active': False,
+                'streamer_status': None,
+                'recent_updates': {},
+                'session_id': session_id[:8]
+            })
+            
+    except Exception as e:
+        print(f"❌ Error getting streaming status: {e}")
+        return jsonify({
+            'error': f'Failed to get status: {str(e)}',
+            'streaming_active': False
+        }), 500
+
+@app.route('/api/streaming/updates')
+def get_recent_updates():
+    """Get recent order/fill updates from streaming"""
+    try:
+        # Get updates from trade store
+        updates = {
+            'orders': get_trade_data('latest_order_update'),
+            'fills': get_trade_data('latest_fill'),
+            'balances': get_trade_data('latest_balance'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(updates)
+        
+    except Exception as e:
+        print(f"❌ Error getting recent updates: {e}")
+        return jsonify({
+            'error': f'Failed to get updates: {str(e)}'
+        }), 500
+
+# Cleanup streamers when the app shuts down
+import atexit
+
+def cleanup_streamers():
+    """Clean up all active streamers on app shutdown"""
+    print("🧹 Cleaning up active streamers...")
+    for session_id, streamer in active_streamers.items():
+        try:
+            streamer.disconnect()
+        except:
+            pass
+    active_streamers.clear()
+
+atexit.register(cleanup_streamers)
+
+# =============================================================================
+# MAIN APPLICATION ENTRY POINT
+# =============================================================================
+
 if __name__ == '__main__':
     if config.IS_PRODUCTION:
         # Production settings for Railway
