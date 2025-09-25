@@ -22,8 +22,83 @@ from enum import Enum
 import requests
 
 # Import our TastyTrade integration
-from tt import get_authenticated_headers, get_current_account_number
+from tt import get_authenticated_headers
 import config
+
+def get_current_account_number():
+    """Get account number from TastyTrade API - Environment Aware"""
+    try:
+        # First check if we have a sandbox account number configured
+        if config.TT_TRADING_ACCOUNT_NUMBER:
+            print(f"🏦 Using configured account number: {config.TT_TRADING_ACCOUNT_NUMBER} ({config.TRADING_MODE})")
+            return config.TT_TRADING_ACCOUNT_NUMBER
+            
+        # If not configured, try to fetch from API using environment-aware trading API
+        trading_api = TastyTradeAPI()
+        headers = trading_api.get_trading_headers()
+        
+        if not headers:
+            print("❌ Failed to get authenticated headers for account lookup")
+            return None
+            
+        # Make API call to get accounts using the trading environment context
+        accounts_url = f"{trading_api.base_url}/accounts"
+        
+        response = requests.get(accounts_url, headers=headers)
+        if response.status_code == 200:
+            accounts_data = response.json()
+            if accounts_data and 'data' in accounts_data and accounts_data['data']:
+                account_number = accounts_data['data'][0]['account']['account-number']
+                print(f"🏦 Fetched account number from API: {account_number} ({config.TRADING_MODE})")
+                return account_number
+        
+        print(f"❌ Failed to fetch account number from API. Status: {response.status_code}")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Error getting account number: {e}")
+        return None
+
+class TradingEnvironmentManager:
+    """Manages dual environment context for data vs trading operations"""
+    
+    @staticmethod
+    def get_data_context():
+        """Get context for market data operations (always production)"""
+        return {
+            'base_url': config.TT_DATA_BASE_URL,
+            'api_key': config.TT_DATA_API_KEY,
+            'api_secret': config.TT_DATA_API_SECRET,
+            'purpose': 'DATA_GATHERING',
+            'environment': 'PRODUCTION'
+        }
+    
+    @staticmethod
+    def get_trading_context():
+        """Get context for trading operations (environment-dependent)"""
+        return {
+            'base_url': config.TT_TRADING_BASE_URL,
+            'api_key': config.TT_TRADING_API_KEY,
+            'api_secret': config.TT_TRADING_API_SECRET,
+            'account_number': config.TT_TRADING_ACCOUNT_NUMBER,
+            'username': config.TT_TRADING_USERNAME,
+            'password': config.TT_TRADING_PASSWORD,
+            'purpose': 'ORDER_EXECUTION',
+            'environment': config.TRADING_MODE
+        }
+    
+    @staticmethod
+    def log_environment_info():
+        """Log the current dual environment configuration"""
+        data_ctx = TradingEnvironmentManager.get_data_context()
+        trading_ctx = TradingEnvironmentManager.get_trading_context()
+        
+        logger.info("🏗️ Dual Environment Configuration:")
+        logger.info(f"📊 Data Gathering: {data_ctx['base_url']} ({data_ctx['environment']})")
+        logger.info(f"🎯 Order Trading: {trading_ctx['base_url']} ({trading_ctx['environment']})")
+        logger.info(f"🔄 Architecture: Data(Production) + Trading({trading_ctx['environment']})")
+        
+        return data_ctx, trading_ctx
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +131,7 @@ class GrokTradeSignal:
     volatility_factor: str
     
     # Trade setup details
+    underlying_symbol: str  # Add missing field
     short_strike: float
     long_strike: float
     credit_received: float
@@ -131,6 +207,7 @@ class GrokResponseParser:
                 resistance_level=trade_data.get('resistance_level', 0.0),
                 volatility_factor=trade_data.get('volatility_factor', ''),
                 
+                underlying_symbol=trade_data.get('underlying', 'SPY'),  # Add underlying symbol
                 short_strike=trade_setup.get('short_put_strike', 0.0),
                 long_strike=trade_setup.get('long_put_strike', 0.0),
                 credit_received=trade_setup.get('credit_received', 0.0),
@@ -235,25 +312,88 @@ class SpreadTradeBuilder:
         )
 
 class TastyTradeAPI:
-    """TastyTrade API integration for order management"""
+    """TastyTrade API integration for TRADING (uses environment-specific config)"""
     
     def __init__(self):
-        self.base_url = "https://api.tastyworks.com"
-        self.account_number = None
+        # Use trading-specific configuration (sandbox in dev, production in prod)
+        self.base_url = config.TT_TRADING_BASE_URL
+        self.api_key = config.TT_TRADING_API_KEY
+        self.api_secret = config.TT_TRADING_API_SECRET
+        self.account_number = config.TT_TRADING_ACCOUNT_NUMBER
+        self.trading_mode = config.TRADING_MODE
         
-    def get_headers(self) -> Dict[str, str]:
-        """Get authenticated headers for API requests"""
-        return get_authenticated_headers()
+        # Trading-specific session token (separate from data gathering)
+        self.trading_token = None
+        
+        logger.info(f"🎯 TastyTrade Trading API initialized in {self.trading_mode} mode")
+        logger.info(f"🔗 Trading Base URL: {self.base_url}")
+        
+    def get_trading_headers(self) -> Dict[str, str]:
+        """Get authenticated headers for TRADING API requests"""
+        if not self.trading_token:
+            self.trading_token = self._authenticate_trading()
+        
+        if self.trading_token:
+            return {
+                'Authorization': f'Bearer {self.trading_token}',
+                'Content-Type': 'application/json'
+            }
+        return {}
+    
+    def _authenticate_trading(self) -> Optional[str]:
+        """Authenticate specifically for trading operations"""
+        try:
+            if self.trading_mode == "SANDBOX":
+                # Sandbox: Use OAuth token from Flask session (same pattern as production)
+                logger.info("🔐 Getting OAuth token for TastyTrade Sandbox trading...")
+                
+                # Try to get sandbox token from Flask session
+                try:
+                    from flask import session
+                    sandbox_token = session.get('sandbox_access_token')
+                    if sandbox_token:
+                        logger.info("✅ Found sandbox OAuth token in Flask session")
+                        return sandbox_token
+                    else:
+                        logger.error("❌ No sandbox OAuth token in Flask session - user needs to authenticate via OAuth")
+                        return None
+                except (ImportError, RuntimeError):
+                    logger.error("❌ Not running in Flask context or Flask not available")
+                    return None
+                    
+            else:
+                # Production: Use existing production authentication from tt.py
+                # This leverages the same OAuth flow as data gathering
+                headers = get_authenticated_headers()
+                if headers and 'Authorization' in headers:
+                    # Extract token from existing authentication
+                    auth_header = headers['Authorization']
+                    if auth_header.startswith('Bearer '):
+                        token = auth_header[7:]  # Remove 'Bearer ' prefix
+                        logger.info("✅ Using existing production token for trading")
+                        return token
+                
+                logger.error("❌ No valid production token available for trading")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Trading authentication error: {e}")
+            return None
     
     def get_account_number(self) -> str:
-        """Get current account number"""
-        if not self.account_number:
-            self.account_number = get_current_account_number()
-        return self.account_number
+        """Get account number for trading operations"""
+        if self.trading_mode == "SANDBOX":
+            # Use predefined sandbox account
+            return self.account_number
+        else:
+            # Production: Get from existing authentication
+            if not self.account_number:
+                self.account_number = get_current_account_number()
+            return self.account_number
     
     def submit_spread_order(self, spread_order: SpreadOrder) -> Optional[Dict]:
         """
-        Submit a complex spread order to TastyTrade
+        Submit a complex spread order to TastyTrade (using trading-specific auth)
         
         Args:
             spread_order: SpreadOrder object
@@ -262,12 +402,17 @@ class TastyTradeAPI:
             Order response data or None if failed
         """
         try:
-            headers = self.get_headers()
+            # Use trading-specific authentication
+            headers = self.get_trading_headers()
             account_number = self.get_account_number()
             
             if not headers or not account_number:
-                logger.error("Missing authentication or account number")
+                logger.error("Missing trading authentication or account number")
                 return None
+            
+            logger.info(f"🎯 Submitting spread order in {self.trading_mode} mode")
+            logger.info(f"📊 Account: {account_number}")
+            logger.info(f"🔗 URL: {self.base_url}")
             
             # Build order payload
             payload = {
@@ -290,25 +435,40 @@ class TastyTradeAPI:
                     "action": leg.action
                 })
             
-            # Submit order
+            logger.info(f"📋 Order payload: {json.dumps(payload, indent=2)}")
+            
+            # Submit order to trading environment
             url = f"{self.base_url}/accounts/{account_number}/orders"
             response = requests.post(url, headers=headers, json=payload)
             
+            logger.info(f"📡 Trading API response: {response.status_code}")
+            
             if response.status_code == 201:
-                logger.info(f"✅ Successfully submitted spread order")
-                return response.json()
+                order_data = response.json()
+                order_id = order_data.get('data', {}).get('order', {}).get('id')
+                logger.info(f"✅ Successfully submitted spread order (ID: {order_id}) in {self.trading_mode}")
+                return order_data
             else:
                 logger.error(f"❌ Failed to submit order: {response.status_code} - {response.text}")
                 return None
                 
         except Exception as e:
             logger.error(f"Error submitting spread order: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
-def test_grok_parsing():
-    """Test function to parse the example Grok response"""
+def test_dual_environment_system():
+    """Test the dual environment system and order submission"""
     
-    # Load the example response
+    print("🏗️ Testing Dual Environment Architecture")
+    print("=" * 60)
+    print(f"🌍 Environment: {config.TRADING_MODE}")
+    print(f"📊 Data API: {config.TT_DATA_BASE_URL}")
+    print(f"🎯 Trading API: {config.TT_TRADING_BASE_URL}")
+    print()
+    
+    # Test Grok parsing
     try:
         with open('/Users/zach/Documents/GitHub/simpleZero/example_grok_response.txt', 'r') as f:
             example_response = f.read()
@@ -328,12 +488,9 @@ def test_grok_parsing():
             print(f"Short Strike: ${signal.short_strike}")
             print(f"Long Strike: ${signal.long_strike}")
             print(f"Credit Received: ${signal.credit_received}")
-            print(f"Max Profit: ${signal.max_profit}")
-            print(f"Max Loss: ${signal.max_loss}")
-            print(f"Probability of Profit: {signal.probability_of_profit}%")
             
             # Build the spread order
-            print("\n🔧 Building Bull Put Spread Order...")
+            print(f"\n🔧 Building Bull Put Spread Order for {config.TRADING_MODE}...")
             print("=" * 50)
             
             builder = SpreadTradeBuilder()
@@ -345,6 +502,38 @@ def test_grok_parsing():
             print("Legs:")
             for i, leg in enumerate(spread_order.legs, 1):
                 print(f"  Leg {i}: {leg.action} {leg.quantity} {leg.symbol}")
+            
+            # Test trading API initialization
+            print(f"\n🎯 Testing Trading API ({config.TRADING_MODE})...")
+            print("=" * 50)
+            
+            trading_api = TastyTradeAPI()
+            
+            # Test authentication
+            headers = trading_api.get_trading_headers()
+            account = trading_api.get_account_number()
+            
+            print(f"Authentication: {'✅ Success' if headers else '❌ Failed'}")
+            print(f"Account Number: {account if account else 'Not available'}")
+            
+            # Test order submission (dry run if no auth)
+            if headers and account:
+                print(f"\n🚀 Testing Order Submission to {config.TRADING_MODE}...")
+                print("⚠️  This will submit a REAL order to the trading environment!")
+                print("Type 'YES' to continue or anything else to skip:")
+                
+                user_input = input().strip()
+                if user_input == 'YES':
+                    result = trading_api.submit_spread_order(spread_order)
+                    if result:
+                        print("✅ Order submitted successfully!")
+                        print(f"📋 Order details: {json.dumps(result, indent=2)}")
+                    else:
+                        print("❌ Order submission failed")
+                else:
+                    print("⏭️  Order submission skipped")
+            else:
+                print("⚠️  Cannot test order submission - authentication failed")
             
             # Test symbol building
             print("\n🔗 Testing Options Symbol Builder...")
@@ -361,7 +550,13 @@ def test_grok_parsing():
         print("❌ Example response file not found")
     except Exception as e:
         print(f"❌ Error during testing: {e}")
+        import traceback
+        traceback.print_exc()
+
+def test_grok_parsing():
+    """Legacy test function - use test_dual_environment_system() instead"""
+    test_dual_environment_system()
 
 if __name__ == "__main__":
-    # Run the test
-    test_grok_parsing()
+    # Run the comprehensive dual environment test
+    test_dual_environment_system()

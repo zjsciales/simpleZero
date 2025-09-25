@@ -1020,7 +1020,8 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     
     # Enhanced technical analysis data from yfinance integration
     ticker_data = market_data.get('ticker_data', {})
-    tech_indicators = ticker_data.get('technical_indicators', {})
+    # Check both locations for technical indicators (new streamlined structure vs old structure)
+    tech_indicators = market_data.get('technical_indicators', {}) or ticker_data.get('technical_indicators', {})
     
     # Extract enhanced technical data with fallbacks
     rsi_data = {
@@ -1314,13 +1315,6 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 - **Expiration:** {expiry_context}
 - **Time Decay:** {time_decay_impact}
 - **Time Remaining:** {time_remaining}
-- **Expected Range:** ${support_level:.2f} - ${resistance_level:.2f} (volatility-adjusted)
-
-## Technical Setup
-- **Trend:** {trend_analysis}
-- **Volatility Environment:** {volatility_env}
-- **Support:** ${support_level:.0f}
-- **Resistance:** ${resistance_level:.0f}
 
 ### Enhanced RSI Analysis
 - **Current RSI:** {rsi_data['current_rsi']:.1f} ({"Overbought" if rsi_data['current_rsi'] > 70 else "Oversold" if rsi_data['current_rsi'] < 30 else "Neutral"} territory)

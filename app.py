@@ -4,9 +4,33 @@ from datetime import datetime
 from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date, get_options_chain_data
 from tt_data import TastyTradeMarketData
 import config
+import requests
+import uuid
+from collections import defaultdict
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_in_production'
+
+# In-memory store for trade data to avoid session cookie bloat
+# This could be replaced with Redis or a database for production scaling
+trade_store = defaultdict(dict)
+
+def get_user_session_id():
+    """Get or create a unique session ID for the user"""
+    if 'user_session_id' not in session:
+        session['user_session_id'] = str(uuid.uuid4())
+    return session['user_session_id']
+
+def store_trade_data(trade_type, data):
+    """Store trade data in memory store"""
+    session_id = get_user_session_id()
+    trade_store[session_id][trade_type] = data
+    print(f"🗄️ Stored {trade_type} for session {session_id[:8]}...")
+
+def get_trade_data(trade_type):
+    """Retrieve trade data from memory store"""
+    session_id = get_user_session_id()
+    return trade_store[session_id].get(trade_type)
 
 # Set Flask configuration based on environment
 app.config['DEBUG'] = config.DEBUG
@@ -62,18 +86,24 @@ def get_market_data_clean(ticker='SPY'):
 @app.route('/')
 def home():
     """Home page - redirect to login if not authenticated, dashboard if authenticated"""
-    token = session.get('access_token')
+    token = session.get('prod_access_token') or session.get('access_token')
     if token:
+        print(f"✅ User authenticated, redirecting to dashboard")
         return redirect('/dashboard')
     else:
+        print("❌ No authentication, showing login page")
         return render_template('login.html')
 
 @app.route('/dashboard')
 def dashboard():
     """Main dashboard page - requires authentication"""
-    token = session.get('access_token')
+    # Check for production token (new naming or legacy)
+    token = session.get('prod_access_token') or session.get('access_token')
     if not token:
+        print("❌ No authentication token found, redirecting to login")
         return redirect('/')
+    
+    print(f"✅ Dashboard access granted with token: {token[:20]}...")
     
     # Ensure tt.py has the token
     set_access_token(token)
@@ -125,15 +155,17 @@ def oauth_callback():
     
     if token_data and token_data.get('access_token'):
         print("🔐 Successfully received tokens!")
-        # Store both access and refresh tokens in session
-        session['access_token'] = token_data['access_token']
+        # Store PRODUCTION tokens in session with proper naming
+        session['prod_access_token'] = token_data['access_token']
         if token_data.get('refresh_token'):
-            session['refresh_token'] = token_data['refresh_token']
+            session['prod_refresh_token'] = token_data['refresh_token']
         
-        # Also set the tokens in tt.py module
+        # Also set the tokens in tt.py module (for backward compatibility)
         set_access_token(token_data['access_token'])
         if token_data.get('refresh_token'):
             set_refresh_token(token_data['refresh_token'])
+            
+        print("🏭 Production tokens stored successfully")
             
         print("🔐 Redirecting to dashboard...")
         return redirect('/dashboard')
@@ -141,10 +173,46 @@ def oauth_callback():
         print("🔐 Failed to exchange code for token")
         return "Failed to exchange code for token", 500
 
+@app.route('/oauth/sandbox/callback')
+def new_sandbox_oauth_callback():
+    """Handle OAuth2 callback from TastyTrade Sandbox"""
+    code = request.args.get('code')
+    state = request.args.get('state')
+    error = request.args.get('error')
+    
+    print(f"🧪 Sandbox OAuth callback received")
+    print(f"🔐 Code: {code[:20]}..." if code else "No code")
+    print(f"🔐 State: {state}")
+    print(f"🔐 Error: {error}" if error else "No error")
+    
+    if error:
+        return f"OAuth Error: {error}", 400
+    
+    if not code:
+        return "No authorization code received", 400
+    
+    # Exchange code for SANDBOX token
+    print("🧪 Exchanging code for sandbox token...")
+    token_data = exchange_sandbox_code_for_token(code)
+    
+    if token_data and token_data.get('access_token'):
+        print("🧪 Successfully received sandbox tokens!")
+        # Store SANDBOX tokens in session
+        session['sandbox_access_token'] = token_data['access_token']
+        if token_data.get('refresh_token'):
+            session['sandbox_refresh_token'] = token_data['refresh_token']
+            
+        print("🧪 Sandbox tokens stored successfully")
+        print("🔐 Redirecting to dashboard...")
+        return redirect('/dashboard')
+    else:
+        print("🧪 Failed to exchange code for sandbox token")
+        return "Failed to exchange code for sandbox token", 500
+
 @app.route('/status')
 def status():
     """Check authentication status"""
-    token = session.get('access_token') or get_oauth_token()
+    token = session.get('prod_access_token') or session.get('access_token') or get_oauth_token()
     
     if token:
         return jsonify({
@@ -161,7 +229,8 @@ def status():
 @app.route('/market-data')
 def market_data():
     """Test market data retrieval with authentication"""
-    token = session.get('access_token')
+    # Check for production tokens (new naming scheme with backward compatibility)
+    token = session.get('prod_access_token') or session.get('access_token')
     
     if not token:
         return """
@@ -208,22 +277,23 @@ def market_data():
 @app.route('/api/market-data')
 def api_market_data():
     """API endpoint for market data (JSON response)"""
-    token = session.get('access_token')
-    refresh_token = session.get('refresh_token')
+    # Check for production tokens (new naming scheme with backward compatibility)
+    token = session.get('prod_access_token') or session.get('access_token')
+    refresh_token = session.get('prod_refresh_token') or session.get('refresh_token')
     
     print(f"🔍 Flask session check:")
-    print(f"  - Has access_token: {bool(token)}")
+    print(f"  - Has prod_access_token: {bool(token)}")
     print(f"  - Has refresh_token: {bool(refresh_token)}")
     if token:
         print(f"  - Token preview: {token[:20]}...")
     print(f"  - Session keys: {list(session.keys())}")
     
     if not token:
-        print("❌ No access token in session")
-        return jsonify({'error': 'Authentication required'}), 401
+        print("❌ No production access token in session")
+        return jsonify({'error': 'Production authentication required'}), 401
     
     # Ensure tt.py has both tokens
-    print("🔄 Setting tokens in tt.py module")
+    print("🔄 Setting production tokens in tt.py module")
     set_access_token(token)
     if refresh_token:
         set_refresh_token(refresh_token)
@@ -249,19 +319,20 @@ def api_options_chain():
     """API endpoint for options chain data"""
     try:
         print("🔍 Flask session check:")
-        print(f"  - Has access_token: {'access_token' in session}")
+        prod_token = session.get('prod_access_token') or session.get('access_token')
+        print(f"  - Has prod_access_token: {bool(prod_token)}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
         
-        if 'access_token' in session:
-            token_preview = session['access_token'][:20] + '...' if len(session['access_token']) > 20 else session['access_token']
+        if prod_token:
+            token_preview = prod_token[:20] + '...' if len(prod_token) > 20 else prod_token
             print(f"  - Token preview: {token_preview}")
         
         print(f"  - Session keys: {list(session.keys())}")
         
         # Set tokens in tt.py module
         print("🔄 Setting tokens in tt.py module")
-        if 'access_token' in session:
-            set_access_token(session['access_token'])
+        if prod_token:
+            set_access_token(prod_token)
         if 'refresh_token' in session:
             set_refresh_token(session['refresh_token'])
         
@@ -315,10 +386,14 @@ def api_available_dtes():
         ticker = request.args.get('ticker', 'SPY').upper()
         print(f"🔍 Getting available DTEs for {ticker}")
         
-        # Check authentication
-        if 'access_token' not in session:
-            print("❌ No access token in session")
-            return jsonify({'error': 'Not authenticated'}), 401
+        # Check authentication (new naming scheme with backward compatibility)
+        prod_token = session.get('prod_access_token') or session.get('access_token')
+        if not prod_token:
+            print("❌ No production access token in session")
+            return jsonify({'error': 'Production authentication required'}), 401
+            
+        # Set token in tt.py module for the market_data function
+        set_access_token(prod_token)
         
         available_dtes = get_available_dtes(ticker)
         
@@ -413,13 +488,14 @@ def api_trading_range():
     """API endpoint for trading range calculation"""
     try:
         print("🔍 Flask session check:")
-        print(f"  - Has access_token: {'access_token' in session}")
+        prod_token = session.get('prod_access_token') or session.get('access_token')
+        print(f"  - Has prod_access_token: {bool(prod_token)}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
         
         # Set tokens in tt.py module
         print("🔄 Setting tokens in tt.py module")
-        if 'access_token' in session:
-            set_access_token(session['access_token'])
+        if prod_token:
+            set_access_token(prod_token)
         if 'refresh_token' in session:
             set_refresh_token(session['refresh_token'])
         
@@ -461,13 +537,14 @@ def api_options_by_date():
     """API endpoint for options chain by expiration date"""
     try:
         print("🔍 Flask session check:")
-        print(f"  - Has access_token: {'access_token' in session}")
+        prod_token = session.get('prod_access_token') or session.get('access_token')
+        print(f"  - Has prod_access_token: {bool(prod_token)}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
         
         # Set tokens in tt.py module
         print("🔄 Setting tokens in tt.py module")
-        if 'access_token' in session:
-            set_access_token(session['access_token'])
+        if prod_token:
+            set_access_token(prod_token)
         if 'refresh_token' in session:
             set_refresh_token(session['refresh_token'])
         
@@ -501,9 +578,9 @@ def api_options_by_date():
 def generate_prompt():
     """API endpoint to generate and preview the Grok prompt"""
     try:
-        token = session.get('access_token')
+        token = session.get('prod_access_token') or session.get('access_token')
         if not token:
-            return jsonify({'error': 'Not authenticated'}), 401
+            return jsonify({'error': 'Production authentication required'}), 401
         
         # Import with dte_manager mock
         import sys
@@ -566,9 +643,9 @@ Please provide comprehensive market analysis with technical indicators, volume a
 def grok_analysis():
     """API endpoint for Grok market analysis"""
     try:
-        token = session.get('access_token')
+        token = session.get('prod_access_token') or session.get('access_token')
         if not token:
-            return jsonify({'error': 'Not authenticated'}), 401
+            return jsonify({'error': 'Production authentication required'}), 401
         
         # Ensure tt.py has the token
         set_access_token(token)
@@ -608,11 +685,59 @@ def grok_analysis():
         
         if grok_response:
             print(f"✅ Grok analysis completed - Response length: {len(grok_response)} characters")
+            
+            # Cache the Grok response
+            session['cached_grok_response'] = {
+                'analysis': grok_response,
+                'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                'ticker': ticker,
+                'dte': dte
+            }
+            
+            # Parse the trade from Grok response
+            parsed_trade = None
+            try:
+                from trader import GrokResponseParser
+                parser = GrokResponseParser()
+                trade_signal = parser.parse_grok_response(grok_response)
+                
+                if trade_signal:
+                    # Store parsed trade in memory store (not session to avoid cookie bloat)
+                    parsed_trade = {
+                        'strategy': trade_signal.strategy_type.value,
+                        'underlying': trade_signal.underlying_symbol,
+                        'confidence': trade_signal.confidence,  # Fixed: confidence not confidence_score
+                        'market_bias': trade_signal.market_bias,
+                        'short_strike': trade_signal.short_strike,
+                        'long_strike': trade_signal.long_strike,
+                        'expiration_date': trade_signal.expiration,  # Fixed: expiration not expiration_date
+                        'credit': trade_signal.credit_received,
+                        'quantity': 1,  # Default quantity
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'raw_analysis': grok_response
+                    }
+                    
+                    # Store in memory store instead of session
+                    store_trade_data('parsed_trade', parsed_trade)
+                    store_trade_data('cached_grok_response', {
+                        'analysis': grok_response,
+                        'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+                        'ticker': ticker,
+                        'dte': dte
+                    })
+                    
+                    print(f"🎯 Trade parsed and stored: {trade_signal.strategy_type.value} on {ticker}")
+                    
+            except Exception as parse_error:
+                print(f"⚠️ Trade parsing failed: {parse_error}")
+                # Continue without parsed trade
+            
             return jsonify({
                 'success': True,
                 'analysis': grok_response,
                 'ticker': ticker,
-                'dte': dte
+                'dte': dte,
+                'parsed_trade': parsed_trade
             })
         else:
             print(f"❌ Grok analysis failed")
@@ -624,23 +749,316 @@ def grok_analysis():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/cached-grok-response')
+def cached_grok_response():
+    """API endpoint to get cached Grok response"""
+    try:
+        # Check if there's a cached response in memory store
+        cached_response = get_trade_data('cached_grok_response')
+        parsed_trade = get_trade_data('parsed_trade')
+        
+        if cached_response:
+            return jsonify({
+                'success': True,
+                'cached_response': cached_response['analysis'],
+                'timestamp': cached_response.get('timestamp', 'Unknown'),
+                'ticker': cached_response.get('ticker', 'SPY'),
+                'dte': cached_response.get('dte', 0),
+                'parsed_trade': parsed_trade
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'No cached response available'
+            })
+            
+    except Exception as e:
+        print(f"💥 Exception getting cached response: {e}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/logout', methods=['POST'])
 def logout():
     """Logout endpoint - clears session"""
     session.clear()
-    return jsonify({'success': True, 'message': 'Logged out successfully'})
+    return jsonify({'success': True})
+
+# =========================================================================
+# TRADE MANAGEMENT SYSTEM
+# =========================================================================
+
+@app.route('/trade')
+def trade_page():
+    """Trade management page with sandbox authentication and parsed trades"""
+    try:
+        # Check for parsed trade in memory store (not session)
+        parsed_trade = get_trade_data('parsed_trade')
+        
+        # Check sandbox authentication status
+        sandbox_authenticated = bool(session.get('sandbox_access_token'))
+        
+        # Get production authentication status for comparison
+        prod_authenticated = bool(session.get('prod_access_token'))
+        
+        print(f"📊 Trade page loaded - Parsed trade available: {parsed_trade is not None}")
+        if parsed_trade:
+            print(f"📊 Trade details: {parsed_trade.get('strategy')} on {parsed_trade.get('underlying')}")
+        
+        return render_template('trade.html',
+            parsed_trade=parsed_trade,
+            sandbox_authenticated=sandbox_authenticated,
+            prod_authenticated=prod_authenticated,
+            environment=config.TRADING_MODE
+        )
+    except Exception as e:
+        print(f"❌ Error in trade page: {e}")
+        return render_template('trade.html', 
+            error=str(e),
+            sandbox_authenticated=False,
+            prod_authenticated=False
+        )
+
+@app.route('/sandbox-auth')
+def sandbox_auth():
+    """Initiate TastyTrade sandbox OAuth authentication"""
+    try:
+        # Generate sandbox OAuth URL
+        sandbox_auth_url = get_sandbox_oauth_authorization_url()
+        if sandbox_auth_url:
+            print(f"🔗 Redirecting to sandbox OAuth: {sandbox_auth_url}")
+            return redirect(sandbox_auth_url)
+        else:
+            print("❌ Failed to generate sandbox OAuth URL")
+            return redirect('/trade?error=sandbox_auth_failed')
+    except Exception as e:
+        print(f"❌ Error initiating sandbox auth: {e}")
+        return redirect('/trade?error=sandbox_auth_failed')
+
+def get_sandbox_oauth_authorization_url():
+    """Generate OAuth2 authorization URL for TastyTrade Sandbox"""
+    try:
+        print("🧪 TastyTrade Sandbox uses session-based authentication, not OAuth")
+        print("� Will authenticate directly with username/password when needed")
+        
+        sandbox_client_id = config.TT_TRADING_API_KEY   # Sandbox API key
+        
+        # Use the sandbox-specific redirect URI from config
+        sandbox_redirect_uri = config.TT_SANDBOX_REDIRECT_URI
+        
+        # TastyTrade Sandbox OAuth - use the correct sandbox-specific endpoint
+        # Based on working implementation from main branch
+        auth_url = "https://cert-my.staging-tasty.works/auth.html"
+        
+        params = {
+            'client_id': sandbox_client_id,
+            'redirect_uri': sandbox_redirect_uri,
+            'response_type': 'code',
+            'scope': 'read trade openid',
+            'state': 'sandbox_oauth_state'  # State parameter for sandbox flow
+        }
+        
+        print(f"🔗 Using sandbox OAuth endpoint: {auth_url}")
+        print(f"🔑 Client ID: {sandbox_client_id}")
+        print(f"🔄 Redirect URI: {sandbox_redirect_uri}")
+        
+        # Convert to query string
+        import urllib.parse
+        query_string = urllib.parse.urlencode(params)
+        full_auth_url = f"{auth_url}?{query_string}"
+        
+        print(f"🔗 Generated sandbox OAuth URL: {full_auth_url}")
+        return full_auth_url
+        
+    except Exception as e:
+        print(f"❌ Error in sandbox auth setup: {e}")
+        return None
+
+
+
+@app.route('/zscialespersonal')
+def sandbox_oauth_callback_personal():
+    """Handle OAuth2 callback from TastyTrade Sandbox - correct redirect URI"""
+    code = request.args.get('code')
+    state = request.args.get('state')
+    error = request.args.get('error')
+    
+    print(f"🔐 Sandbox OAuth callback received at /zscialespersonal")
+    print(f"🔐 Code: {code[:20]}..." if code else "No code")
+    print(f"🔐 State: {state}")
+    print(f"🔐 Error: {error}" if error else "No error")
+    
+    if error:
+        print(f"❌ Sandbox OAuth error: {error}")
+        return redirect('/trade?error=sandbox_auth_failed')
+    
+    if not code:
+        print("❌ No sandbox authorization code received")
+        return redirect('/trade?error=no_sandbox_code')
+    
+    # Exchange code for sandbox token
+    print("🔐 Exchanging sandbox code for token...")
+    sandbox_token_data = exchange_sandbox_code_for_token(code)
+    
+    if sandbox_token_data and sandbox_token_data.get('access_token'):
+        print("🔐 Successfully received sandbox tokens!")
+        
+        # Store SANDBOX tokens in session with proper naming
+        session['sandbox_access_token'] = sandbox_token_data['access_token']
+        if sandbox_token_data.get('refresh_token'):
+            session['sandbox_refresh_token'] = sandbox_token_data['refresh_token']
+            
+        session['sandbox_authenticated_at'] = datetime.utcnow().isoformat()
+        print("🧪 Sandbox tokens stored successfully")
+            
+        print("🔐 Redirecting to trade page...")
+        return redirect('/trade')
+    else:
+        print("🔐 Failed to exchange sandbox code for token")
+        return redirect('/trade?error=sandbox_token_failed')
+
+def exchange_sandbox_code_for_token(code):
+    """Exchange authorization code for sandbox access token"""
+    try:
+        sandbox_base_url = config.TT_TRADING_BASE_URL
+        sandbox_client_id = config.TT_TRADING_API_KEY
+        sandbox_client_secret = config.TT_TRADING_API_SECRET
+        sandbox_redirect_uri = config.TT_SANDBOX_REDIRECT_URI
+        
+        token_url = f"{sandbox_base_url}/oauth/token"
+        
+        print(f"🔗 Exchanging sandbox code for token: {token_url}")
+        print(f"🔑 Sandbox Client ID: {sandbox_client_id[:10]}..." if sandbox_client_id else "❌ No Client ID")
+        print(f"🔑 Sandbox Client Secret: {sandbox_client_secret[:10]}..." if sandbox_client_secret else "❌ No Client Secret")
+        print(f"🔄 Redirect URI: {sandbox_redirect_uri}")
+        
+        # Use the same headers format as tt.py
+        headers = {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        # Prepare token exchange data - same format as tt.py exchange_code_for_token
+        payload = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': sandbox_redirect_uri,
+            'client_id': sandbox_client_id,
+            'client_secret': sandbox_client_secret
+        }
+        
+        print(f"📋 Payload: {payload}")
+        
+        # Make the token exchange request with proper headers
+        response = requests.post(token_url, data=payload, headers=headers)
+        
+        print(f"📡 Sandbox token response status: {response.status_code}")
+        
+        if response.status_code == 200:
+            token_response = response.json()
+            print("✅ Sandbox token exchange successful")
+            
+            # Log token details (safely)
+            if 'access_token' in token_response:
+                print(f"📋 Token type: {token_response.get('token_type', 'Unknown')}")
+                print(f"⏰ Expires in: {token_response.get('expires_in', 'Unknown')} seconds")
+                print(f"🔄 Refresh token received: {'refresh_token' in token_response}")
+            
+            return token_response
+        else:
+            print(f"❌ Sandbox token exchange failed: {response.status_code}")
+            print(f"📄 Response: {response.text}")
+            return None
+            
+    except Exception as e:
+        print(f"💥 Exception during sandbox token exchange: {e}")
+        return None
+
+@app.route('/api/execute-trade', methods=['POST'])
+def execute_trade():
+    """Execute the parsed trade in sandbox environment"""
+    try:
+        # Check sandbox authentication
+        if not session.get('sandbox_access_token'):
+            return jsonify({'error': 'Sandbox authentication required'}), 401
+            
+        # Get the parsed trade from memory store
+        parsed_trade = get_trade_data('parsed_trade')
+        if not parsed_trade:
+            return jsonify({'error': 'No trade available for execution'}), 400
+            
+        # Import trading components
+        from trader import TastyTradeAPI, SpreadTradeBuilder
+        
+        # Create API instance and authenticate
+        api = TastyTradeAPI()
+        api.trading_token = session.get('sandbox_access_token')
+        
+        # Build the order from parsed trade
+        builder = SpreadTradeBuilder()
+        
+        if parsed_trade['strategy'] == 'BULL_PUT_SPREAD':
+            order = builder.create_bull_put_spread(
+                underlying=parsed_trade['underlying'],
+                short_strike=parsed_trade['short_strike'],
+                long_strike=parsed_trade['long_strike'],
+                expiration_date=parsed_trade['expiration_date'],
+                quantity=parsed_trade.get('quantity', 1),
+                price=parsed_trade.get('credit', 0.0)
+            )
+        elif parsed_trade['strategy'] == 'BEAR_CALL_SPREAD':
+            order = builder.create_bear_call_spread(
+                underlying=parsed_trade['underlying'],
+                short_strike=parsed_trade['short_strike'],
+                long_strike=parsed_trade['long_strike'],
+                expiration_date=parsed_trade['expiration_date'],
+                quantity=parsed_trade.get('quantity', 1),
+                price=parsed_trade.get('credit', 0.0)
+            )
+        else:
+            return jsonify({'error': f'Unsupported strategy: {parsed_trade["strategy"]}'}), 400
+            
+        # Submit the order
+        result = api.submit_spread_order(order)
+        
+        if result and result.get('success'):
+            # Store execution result
+            session['last_execution'] = {
+                'timestamp': datetime.utcnow().isoformat(),
+                'trade': parsed_trade,
+                'result': result,
+                'order_id': result.get('order_id')
+            }
+            
+            return jsonify({
+                'success': True,
+                'message': 'Trade executed successfully',
+                'order_id': result.get('order_id'),
+                'result': result
+            })
+        else:
+            return jsonify({
+                'error': 'Trade execution failed',
+                'details': result
+            }), 500
+            
+    except Exception as e:
+        print(f"❌ Error executing trade: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/auth-status')
 def auth_status():
     """Check if user is authenticated with TastyTrade API"""
     try:
-        # Check Flask session
-        token = session.get('access_token')
-        has_session_token = token is not None
+        # Check Flask session for production tokens
+        prod_token = session.get('prod_access_token') or session.get('access_token')  # backward compatibility
+        sandbox_token = session.get('sandbox_access_token')
+        
+        has_prod_session = prod_token is not None
+        has_sandbox_session = sandbox_token is not None
         
         # Check actual TastyTrade API connection
-        from tt_data import TastyTradeClient
-        client = TastyTradeClient()
+        from tt_data import TastyTradeMarketData
+        client = TastyTradeMarketData()
         api_authenticated = client.authenticate()
         
         # Test actual API call if authenticated
@@ -656,11 +1074,13 @@ def auth_status():
         
         return jsonify({
             'authenticated': api_authenticated and api_working,
-            'session_active': has_session_token,
+            'prod_session_active': has_prod_session,
+            'sandbox_session_active': has_sandbox_session,
             'api_authenticated': api_authenticated,
             'api_working': api_working,
             'details': {
-                'flask_session': has_session_token,
+                'prod_session': has_prod_session,
+                'sandbox_session': has_sandbox_session,
                 'tt_headers': api_authenticated,
                 'api_test': api_working
             }
@@ -669,7 +1089,8 @@ def auth_status():
         print(f"❌ Error checking auth status: {e}")
         return jsonify({
             'authenticated': False,
-            'session_active': False,
+            'prod_session_active': False,
+            'sandbox_session_active': False,
             'api_authenticated': False,
             'api_working': False,
             'error': str(e)

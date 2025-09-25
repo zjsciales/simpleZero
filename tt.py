@@ -56,16 +56,23 @@ def set_refresh_token(token):
     global _refresh_token
     _refresh_token = token
 
-def get_access_token_from_flask():
+def get_access_token_from_flask(token_type='prod'):
     """
     Try to get access token from Flask session if running in Flask context.
+    
+    Args:
+    token_type (str): 'prod' for production tokens, 'sandbox' for sandbox tokens
     
     Returns:
     str: Access token from Flask session or None
     """
     try:
         from flask import session
-        return session.get('access_token')
+        if token_type == 'sandbox':
+            return session.get('sandbox_access_token')
+        else:
+            # Check both new and legacy token names for backward compatibility
+            return session.get('prod_access_token') or session.get('access_token')
     except (ImportError, RuntimeError):
         # Not running in Flask context or Flask not available
         return None
@@ -351,11 +358,11 @@ def get_authenticated_headers():
     """
     global _access_token
     
-    # Always check Flask session first for the most current token
-    flask_token = get_access_token_from_flask()
+    # Always check Flask session first for the most current token (production)
+    flask_token = get_access_token_from_flask('prod')
     if flask_token:
         _access_token = flask_token
-        print(f"✅ Got access token from Flask session: {flask_token[:20]}...")
+        print(f"✅ Got production access token from Flask session: {flask_token[:20]}...")
     
     # Use stored token 
     token = _access_token
