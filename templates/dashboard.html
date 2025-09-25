@@ -544,6 +544,30 @@
     </div>
 
     <div class="main-content">
+        <!-- Debug Section -->
+        <div class="section">
+            <div class="section-header">
+                <span class="section-icon">🔧</span>
+                <span class="section-title">Debug Options Data</span>
+                <button onclick="toggleDebugSection()" style="margin-left: auto; background: #f39c12; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer;">
+                    Toggle Debug
+                </button>
+            </div>
+            
+            <div id="debug-section" style="display: none; margin-top: 15px;">
+                <div style="margin-bottom: 15px;">
+                    <button onclick="fetchDebugOptions()" style="background: #27ae60; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-right: 10px;">
+                        🔍 Fetch Raw Options Data
+                    </button>
+                    <span id="debug-status" style="color: #666;"></span>
+                </div>
+                
+                <div id="debug-output" style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 15px; font-family: monospace; font-size: 12px; max-height: 400px; overflow-y: auto; white-space: pre-wrap;">
+                    Click "Fetch Raw Options Data" to see the actual options contracts coming from the API...
+                </div>
+            </div>
+        </div>
+
         <!-- Grok AI Market Analysis -->
         <div class="section">
             <div class="section-header">
@@ -563,12 +587,18 @@
                 <div class="controls">
                     <div class="control-group">
                         <label class="control-label">Ticker</label>
-                        <input type="text" id="ticker" class="control-input" value="SPY" placeholder="SPY" onchange="updatePrompt()">
+                        <input type="text" id="ticker" class="control-input" value="SPY" placeholder="SPY" onchange="onTickerChange()">
                     </div>
                     
                     <div class="control-group">
                         <label class="control-label">DTE (Days to Expiration)</label>
-                        <input type="number" id="dte" class="control-input" value="0" min="0" max="365" onchange="updatePrompt()">
+                        <select id="dte" class="control-input" onchange="updatePrompt()">
+                            <option value="">Loading available DTEs...</option>
+                        </select>
+                        <div id="dte-loading" class="loading-indicator" style="display: none;">
+                            🔄 Loading available expiration dates...
+                        </div>
+                        <div id="dte-error" class="error-message" style="display: none; color: #ff6b6b; font-size: 12px; margin-top: 5px;"></div>
                     </div>
                     
                     <div class="control-group prompt-preview">
@@ -593,6 +623,44 @@
     <script>
         let promptUpdateTimeout;
         let isLoadingMarketData = false;
+
+        // Load cached Grok response on page load
+        async function loadCachedGrokResponse() {
+            try {
+                const response = await fetch('/api/cached-grok-response');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.cached_response) {
+                        const resultDiv = document.getElementById('analysis-result');
+                        const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy;
+                        
+                        resultDiv.style.display = 'block';
+                        resultDiv.innerHTML = `
+                            <div style="background: #fffbf0; border: 1px solid #ffd43b; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
+                                <strong>📋 Cached Response</strong> (${data.timestamp}) - Run new analysis to update
+                            </div>
+                            <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
+                                ${data.cached_response}
+                            </div>
+                            ${hasTradeSignal ? `
+                                <div style="margin-top: 20px; padding: 15px; background: #e7f5ff; border: 1px solid #74c0fc; border-radius: 6px;">
+                                    <h4 style="color: #1864ab; margin-bottom: 10px;">🎯 Trade Signal Generated</h4>
+                                    <p style="margin-bottom: 15px;">
+                                        <strong>${data.parsed_trade.strategy.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying} 
+                                        (${data.parsed_trade.confidence}% confidence)
+                                    </p>
+                                    <a href="/trade" style="background: #228be6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600;">
+                                        📊 View Trade Details
+                                    </a>
+                                </div>
+                            ` : ''}
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.log('No cached response available:', error);
+            }
+        }
 
         async function loadMarketData() {
             // Prevent multiple concurrent calls
@@ -722,6 +790,51 @@
             }, 500); // 500ms delay
         }
 
+        async function loadCachedGrokResponse() {
+            try {
+                const response = await fetch('/api/cached-grok-response');
+                const data = await response.json();
+                
+                if (data.success && data.cached_response) {
+                    const resultDiv = document.getElementById('analysis-result');
+                    const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy;
+                    
+                    // Show the cached response with a header indicating it's cached
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 10px; margin-bottom: 15px;">
+                            <strong>📋 Cached Analysis</strong> - Generated: ${data.timestamp} | Ticker: ${data.ticker} | DTE: ${data.dte}
+                            <small style="display: block; color: #6c757d; margin-top: 5px;">
+                                This is the last analysis. Click "Run Grok Analysis" for a fresh analysis.
+                            </small>
+                        </div>
+                        <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
+                            ${data.cached_response}
+                        </div>
+                        ${hasTradeSignal ? `
+                            <div style="margin-top: 20px; padding: 15px; background: #e7f5ff; border: 1px solid #74c0fc; border-radius: 6px;">
+                                <h4 style="color: #1864ab; margin-bottom: 10px;">🎯 Trade Signal Available</h4>
+                                <p style="margin-bottom: 15px;">
+                                    <strong>${data.parsed_trade.strategy.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying} 
+                                    (${data.parsed_trade.confidence}% confidence)
+                                </p>
+                                <a href="/trade" style="background: #228be6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600;">
+                                    📊 View Trade Details
+                                </a>
+                            </div>
+                        ` : ''}
+                    `;
+                    
+                    console.log('✅ Loaded cached Grok response');
+                } else {
+                    console.log('ℹ️ No cached Grok response available');
+                }
+            } catch (error) {
+                console.error('Error loading cached Grok response:', error);
+                // Don't show error to user for cached data - it's optional
+            }
+        }
+
         async function analyzeMarket() {
             const ticker = document.getElementById('ticker').value.trim();
             const dte = document.getElementById('dte').value.trim();
@@ -756,10 +869,25 @@
                 const data = await response.json();
                 
                 if (data.success) {
+                    // Check if there's a parsed trade available
+                    const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy;
+                    
                     resultDiv.innerHTML = `
                         <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
                             ${data.analysis}
                         </div>
+                        ${hasTradeSignal ? `
+                            <div style="margin-top: 20px; padding: 15px; background: #e7f5ff; border: 1px solid #74c0fc; border-radius: 6px;">
+                                <h4 style="color: #1864ab; margin-bottom: 10px;">🎯 Trade Signal Generated</h4>
+                                <p style="margin-bottom: 15px;">
+                                    <strong>${data.parsed_trade.strategy.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying} 
+                                    (${data.parsed_trade.confidence}% confidence)
+                                </p>
+                                <a href="/trade" style="background: #228be6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600;">
+                                    📊 View Trade Details
+                                </a>
+                            </div>
+                        ` : ''}
                     `;
                 } else {
                     throw new Error(data.error || 'Analysis failed');
@@ -776,6 +904,139 @@
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = '🚀 Run Grok Analysis';
             }
+        }
+
+        // Debug Functions
+        function toggleDebugSection() {
+            const debugSection = document.getElementById('debug-section');
+            if (debugSection.style.display === 'none') {
+                debugSection.style.display = 'block';
+            } else {
+                debugSection.style.display = 'none';
+            }
+        }
+
+        async function fetchDebugOptions() {
+            const ticker = document.getElementById('ticker').value || 'SPY';
+            const statusElement = document.getElementById('debug-status');
+            const outputElement = document.getElementById('debug-output');
+            
+            statusElement.textContent = 'Fetching options data...';
+            outputElement.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch(`/api/debug-options?ticker=${encodeURIComponent(ticker)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                statusElement.textContent = `Loaded ${data.total_options} options with ${data.unique_expirations} unique expirations`;
+                
+                // Format the debug output
+                let debugText = `🔍 DEBUG: Raw Options Data for ${data.ticker}\n`;
+                debugText += `===============================================\n\n`;
+                debugText += `📊 Summary:\n`;
+                debugText += `  • Total Options: ${data.total_options}\n`;
+                debugText += `  • Unique Expirations: ${data.unique_expirations}\n`;
+                debugText += `  • Response Type: ${data.response_type}\n`;
+                debugText += `  • Raw Response Keys: ${JSON.stringify(data.raw_response_keys)}\n\n`;
+                
+                debugText += `📅 All Expiration Dates:\n`;
+                data.expiration_dates.forEach((date, index) => {
+                    const today = new Date();
+                    const expDate = new Date(date);
+                    const daysOut = Math.ceil((expDate - today) / (1000 * 60 * 60 * 24));
+                    debugText += `  ${index + 1}. ${date} (${daysOut} days out)\n`;
+                });
+                
+                debugText += `\n🔬 Sample Options (first 1000):\n`;
+                data.sample_options.forEach((option, index) => {
+                    debugText += `  ${index + 1}. ${option.symbol}\n`;
+                    debugText += `     • Expiration: ${option.expiration_date}\n`;
+                    debugText += `     • Strike: ${option.strike_price}\n`;
+                    debugText += `     • Type: ${option.option_type}\n\n`;
+                });
+                
+                outputElement.textContent = debugText;
+                
+            } catch (error) {
+                statusElement.textContent = `Error: ${error.message}`;
+                outputElement.textContent = `Failed to fetch debug data: ${error.message}`;
+            }
+        }
+
+        // DTE Management Functions
+        async function loadAvailableDTEs(ticker) {
+            const dteSelect = document.getElementById('dte');
+            const loadingIndicator = document.getElementById('dte-loading');
+            const errorDiv = document.getElementById('dte-error');
+            
+            // Show loading state
+            loadingIndicator.style.display = 'block';
+            errorDiv.style.display = 'none';
+            dteSelect.innerHTML = '<option value="">Loading available DTEs...</option>';
+            dteSelect.disabled = true;
+            
+            try {
+                const response = await fetch(`/api/available-dtes?ticker=${encodeURIComponent(ticker)}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success && data.available_dtes && data.available_dtes.length > 0) {
+                    // Clear the loading option
+                    dteSelect.innerHTML = '<option value="">Select DTE...</option>';
+                    
+                    // Add available DTEs
+                    data.available_dtes.forEach(dteInfo => {
+                        const option = document.createElement('option');
+                        option.value = dteInfo.dte;
+                        option.textContent = `${dteInfo.dte}DTE (${dteInfo.expiration_date}) - ${dteInfo.count} options`;
+                        dteSelect.appendChild(option);
+                    });
+                    
+                    // Select the first reasonable DTE (e.g., 0-7 days out)
+                    const defaultDTE = data.available_dtes.find(dte => dte.dte >= 0 && dte.dte <= 7);
+                    if (defaultDTE) {
+                        dteSelect.value = defaultDTE.dte;
+                        updatePrompt(); // Update prompt with new selection
+                    }
+                    
+                    console.log(`✅ Loaded ${data.available_dtes.length} DTEs for ${ticker}`);
+                } else {
+                    throw new Error(data.error || 'No DTEs available');
+                }
+                
+            } catch (error) {
+                console.error('Error loading DTEs:', error);
+                errorDiv.textContent = `Error loading DTEs: ${error.message}`;
+                errorDiv.style.display = 'block';
+                dteSelect.innerHTML = '<option value="">Error loading DTEs</option>';
+            } finally {
+                loadingIndicator.style.display = 'none';
+                dteSelect.disabled = false;
+            }
+        }
+        
+        async function onTickerChange() {
+            const ticker = document.getElementById('ticker').value.trim().toUpperCase();
+            
+            if (!ticker) {
+                const dteSelect = document.getElementById('dte');
+                dteSelect.innerHTML = '<option value="">Enter ticker first...</option>';
+                return;
+            }
+            
+            // Update the ticker input to show uppercase
+            document.getElementById('ticker').value = ticker;
+            
+            // Load available DTEs for this ticker
+            await loadAvailableDTEs(ticker);
         }
 
         // Authentication functions
@@ -818,6 +1079,9 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Page loaded, checking authentication...');
             
+            // Load cached Grok response first
+            loadCachedGrokResponse();
+            
             // Check authentication status
             fetch('/api/market-data')
                 .then(response => {
@@ -829,11 +1093,16 @@
                         console.log('Authenticated, loading market data...');
                         loadMarketData();
                         
-                        // Initialize prompt if elements exist and user is authenticated
-                        if (document.getElementById('ticker')) {
-                            console.log('Authenticated, generating initial prompt...');
-                            updatePrompt();
-                        }
+                        // Load available DTEs for the default ticker
+                        const ticker = document.getElementById('ticker')?.value || 'SPY';
+                        console.log('Loading available DTEs for:', ticker);
+                        loadAvailableDTEs(ticker);
+                        
+                        // Load cached Grok response if available
+                        console.log('Loading cached Grok response...');
+                        loadCachedGrokResponse();
+                        
+                        // Initialize prompt will be called after DTEs load via updatePrompt()
                     } else {
                         console.log('Not authenticated, skipping market data load and prompt generation');
                         // Set unauthenticated message for prompt

@@ -3,30 +3,34 @@ import os
 import json
 import pandas as pd
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
 from dotenv import load_dotenv
 import config
 
 # Load environment variables
 load_dotenv()
 
-# TastyTrade API credentials (Sandbox)
-TT_API_KEY = os.getenv('TT_API_KEY_SANDBOX')
-TT_API_SECRET = os.getenv('TT_API_SECRET_SANDBOX')
-TT_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com')
-TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
-TT_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
-TT_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
+# TastyTrade API credentials (Production)
+TT_API_KEY = os.getenv('TT_API_KEY')
+TT_API_SECRET = os.getenv('TT_API_SECRET')
+TT_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
+TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER')
+TT_USERNAME = os.getenv('TT_USERNAME')
+TT_PASSWORD = os.getenv('TT_PASSWORD')
 
 # Use environment-aware redirect URI from config
 TT_REDIRECT_URI = config.TT_REDIRECT_URI
 
 # OAuth2 settings for TastyTrade
-TT_OAUTH_BASE_URL = "https://api.cert.tastyworks.com"
+TT_OAUTH_BASE_URL = TT_BASE_URL  # Use same base URL as API calls
 TT_CLIENT_ID = TT_API_KEY  # Using API key as client ID for OAuth2
 TT_CLIENT_SECRET = TT_API_SECRET  # Using API secret as client secret
 
 print(f"🔧 TT Module - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
 print(f"🔧 TT Module - Redirect URI: {TT_REDIRECT_URI}")
+print(f"🔑 TT Module - API Key loaded: {TT_API_KEY[:10]}..." if TT_API_KEY else "❌ TT Module - No API Key loaded")
+print(f"🔑 TT Module - API Secret loaded: {TT_API_SECRET[:10]}..." if TT_API_SECRET else "❌ TT Module - No API Secret loaded")
+print(f"🔗 TT Module - Base URL: {TT_BASE_URL}")
 
 # Global variables to store tokens
 _access_token = None
@@ -52,19 +56,47 @@ def set_refresh_token(token):
     global _refresh_token
     _refresh_token = token
 
-def get_access_token_from_flask():
+def get_access_token_from_flask(token_type='prod'):
     """
     Try to get access token from Flask session if running in Flask context.
+    
+    Args:
+    token_type (str): 'prod' for production tokens, 'sandbox' for sandbox tokens
     
     Returns:
     str: Access token from Flask session or None
     """
     try:
         from flask import session
-        return session.get('access_token')
+        if token_type == 'sandbox':
+            return session.get('sandbox_access_token')
+        else:
+            # Check both new and legacy token names for backward compatibility
+            return session.get('prod_access_token') or session.get('access_token')
     except (ImportError, RuntimeError):
         # Not running in Flask context or Flask not available
         return None
+
+def update_flask_session_tokens(access_token, refresh_token=None):
+    """
+    Update Flask session with new tokens if running in Flask context.
+    
+    Args:
+    access_token (str): New access token
+    refresh_token (str): New refresh token (optional)
+    """
+    try:
+        from flask import session
+        if access_token:
+            session['access_token'] = access_token
+            print(f"🔄 Updated Flask session with new access token: {access_token[:20]}...")
+        if refresh_token:
+            session['refresh_token'] = refresh_token
+            print(f"🔄 Updated Flask session with new refresh token")
+    except (ImportError, RuntimeError):
+        # Not running in Flask context or Flask not available
+        print("⚠️ Could not update Flask session (not in Flask context)")
+        pass
 
 def get_oauth_token():
     """
@@ -154,7 +186,7 @@ def get_oauth_authorization_url():
     User will need to visit this URL to authorize the application.
     
     Based on TastyTrade OAuth2 documentation:
-    - Authorization URL: https://cert-my.staging-tasty.works/auth.html (Sandbox)
+    - Authorization URL: Uses production endpoint for live trading
     - Parameters: client_id, redirect_uri, response_type, scope (optional), state (optional)
     
     Returns:
@@ -162,18 +194,46 @@ def get_oauth_authorization_url():
     """
     import urllib.parse
     
+    print(f"🔗 Building OAuth URL...")
+    print(f"🔑 Client ID: {TT_CLIENT_ID[:10]}..." if TT_CLIENT_ID else "❌ No Client ID")
+    print(f"🔄 Redirect URI: {TT_REDIRECT_URI}")
+    print(f"🌐 Base URL: {TT_BASE_URL}")
+    print(f"🏭 Using production credentials: {'Yes' if TT_CLIENT_ID and TT_CLIENT_ID != 'your_tastytrade_api_key' else 'No'}")
+    
     params = {
         'client_id': TT_CLIENT_ID,
         'redirect_uri': TT_REDIRECT_URI,
         'response_type': 'code',
-        'scope': 'read trade openid',  # Valid scopes per documentation
-        'state': 'random_state_string'  # Should be random in production
+        'scope': 'read trade openid'  # Valid scopes per documentation (removed state parameter)
     }
     
-    # Use the correct TastyTrade authorization endpoint for sandbox
-    base_url = "https://cert-my.staging-tasty.works/auth.html"
+    # Use the correct TastyTrade authorization endpoint from documentation
+    # According to docs: https://my.tastytrade.com/auth.html (Production)
+    # Check if we have production credentials (not placeholder values)
+    using_production_creds = (TT_CLIENT_ID and 
+                             TT_CLIENT_ID != 'your_tastytrade_api_key' and 
+                             "api.tastyworks.com" in TT_BASE_URL)
+    
+    if using_production_creds:
+        # Production authorization endpoint per TastyTrade documentation
+        base_url = "https://my.tastytrade.com/auth.html"
+        print(f"🎯 Using production auth endpoint: {base_url}")
+    else:
+        # ERROR: This should never happen now - let's see what's going wrong
+        print(f"❌ FALLBACK TRIGGERED - This shouldn't happen!")
+        print(f"   TT_CLIENT_ID: '{TT_CLIENT_ID}'")
+        print(f"   TT_CLIENT_ID != placeholder: {TT_CLIENT_ID != 'your_tastytrade_api_key'}")
+        print(f"   TT_BASE_URL: '{TT_BASE_URL}'")
+        print(f"   api.tastyworks.com in base: {'api.tastyworks.com' in TT_BASE_URL}")
+        
+        # Force production endpoint anyway
+        base_url = "https://my.tastytrade.com/auth.html"
+        print(f"🔧 FORCING production auth endpoint: {base_url}")
+    
     query_string = urllib.parse.urlencode(params)
     auth_url = f"{base_url}?{query_string}"
+    
+    print(f"🔗 Final OAuth URL: {auth_url}")
     
     return auth_url
 
@@ -271,6 +331,9 @@ def refresh_access_token():
             print(f"📋 New token type: {data.get('token_type', 'bearer')}")
             print(f"⏰ Expires in: {data.get('expires_in', 'unknown')} seconds")
             
+            # Update Flask session with new tokens
+            update_flask_session_tokens(_access_token, _refresh_token)
+            
             return {
                 'access_token': _access_token,
                 'refresh_token': _refresh_token,
@@ -288,17 +351,25 @@ def refresh_access_token():
 def get_authenticated_headers():
     """
     Get headers with OAuth2 bearer token for TastyTrade API calls.
-    Uses stored token first, then falls back to getting a new one.
+    Always checks Flask session first for the latest token.
     
     Returns:
     dict: Headers with authorization token
     """
-    # Use stored token first (from Flask session)
     global _access_token
+    
+    # Always check Flask session first for the most current token (production)
+    flask_token = get_access_token_from_flask('prod')
+    if flask_token:
+        _access_token = flask_token
+        print(f"✅ Got production access token from Flask session: {flask_token[:20]}...")
+    
+    # Use stored token 
     token = _access_token
     
     # If no stored token, try to get a new one
     if not token:
+        print("🔍 No stored token, attempting to get new token...")
         token = get_oauth_token()
     
     if not token:
@@ -325,10 +396,12 @@ def get_market_data(ticker=None):
         ticker = config.DEFAULT_TICKER.upper()
     
     try:
-        # TastyTrade market data endpoint - try direct ticker format
-        # This format worked in our successful run
-        market_data_url = f"{TT_BASE_URL}/market-data/{ticker}"
-        params = {}
+        # TastyTrade market data endpoint - use the correct /market-data/ structure
+        # Based on documentation: GET /market-data/by-type with equity parameter
+        market_data_url = f"{TT_BASE_URL}/market-data/by-type"
+        params = {
+            'equity': [ticker]  # Pass ticker as equity array parameter
+        }
         
         print(f"🔗 Calling TastyTrade Market Data API: {market_data_url}")
         print(f"📋 Parameters: {params}")
@@ -357,45 +430,47 @@ def get_market_data(ticker=None):
             # Debug: Print the actual response structure
             print(f"🔍 Response structure: {list(data.keys())}")
             
-            # Based on TastyTrade documentation, expect: {"data": {"items": [...]}}
+            # Parse /market-data/by-type response for price data
+            # This endpoint should contain the pricing information we need
             ticker_data = None
             
             if 'data' in data:
-                data_obj = data['data']
-                print(f"🔍 Data structure: {list(data_obj.keys())}")
+                # Look for the ticker data in the response
+                market_data = data['data']
                 
-                # Check if it has items array (expected format)
-                if 'items' in data_obj and isinstance(data_obj['items'], list):
-                    items = data_obj['items']
-                    print(f"🔍 Items count: {len(items)}")
-                    
-                    if items:
-                        # Should be SPY data in the first (and likely only) item
-                        first_item = items[0]
-                        print(f"🔍 First item keys: {list(first_item.keys())}")
-                        print(f"🔍 First item symbol: {first_item.get('symbol')}")
-                        
-                        # Check if this is our SPY data
-                        if first_item.get('symbol', '').upper() == ticker.upper():
-                            ticker_data = first_item
-                            print(f"✅ Found matching symbol: {ticker}")
-                        else:
-                            print(f"⚠️ Symbol mismatch: expected {ticker}, got {first_item.get('symbol')}")
-                    else:
-                        print(f"🔍 Items array is empty")
-                else:
-                    print(f"🔍 No 'items' array found in data")
-                    # Maybe it's a direct object format
-                    if data_obj.get('symbol', '').upper() == ticker.upper():
-                        ticker_data = data_obj
-                        print(f"🔍 Found direct symbol format")
-            else:
-                print(f"🔍 No 'data' key in response")
+                # Check if it's a dict with our ticker as key
+                if isinstance(market_data, dict) and ticker in market_data:
+                    ticker_data = market_data[ticker]
+                    print(f"✅ Found {ticker} data in market_data dict")
+                
+                # Check if it's a list of instruments
+                elif isinstance(market_data, list):
+                    for item in market_data:
+                        if isinstance(item, dict) and item.get('symbol') == ticker:
+                            ticker_data = item
+                            print(f"✅ Found {ticker} data in market_data list")
+                            break
+                
+                # Check if it's directly the ticker data
+                elif isinstance(market_data, dict) and market_data.get('symbol') == ticker:
+                    ticker_data = market_data
+                    print(f"✅ Found {ticker} data directly")
             
+            # If no ticker data found in main response, it might be in 'items'
+            if not ticker_data and 'data' in data and 'items' in data['data']:
+                items = data['data']['items']
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and item.get('symbol') == ticker:
+                            ticker_data = item
+                            print(f"✅ Found {ticker} data in items array")
+                            break
+            
+            # If no ticker data found, provide fallback structure
             if not ticker_data:
-                print(f"❌ No market data found for {ticker}")
-                print(f"🔍 Full response: {data}")
-                return None
+                print(f"⚠️ No ticker data found in /market-data/by-type response")
+                # Use the raw response data as fallback
+                ticker_data = data.get('data', {})
             
             # Extract relevant market data using TastyTrade field names
             # Based on the API response structure you provided
@@ -446,15 +521,97 @@ def get_market_data(ticker=None):
             
         elif response.status_code == 401:
             print(f"🔒 Authentication failed for market data endpoint")
-            print(f"� Response body: {response.text}")
-            print(f"� Attempting automatic token refresh...")
+            print(f"🔍 Response body: {response.text}")
+            print(f"🔄 Attempting automatic token refresh...")
             
             # Try to refresh the token automatically
             refresh_result = refresh_access_token()
             if refresh_result and refresh_result.get('access_token'):
-                print(f"✅ Token refreshed, retrying market data request...")
-                # Update headers and retry - simplified version for now
-                print(f"💡 Please try the refresh button again")
+                print(f"✅ Token refreshed successfully, retrying market data request...")
+                
+                # Retry the request with new token
+                headers = get_authenticated_headers()
+                retry_response = requests.get(market_data_url, headers=headers, params=params)
+                print(f"📡 Retry Response Status: {retry_response.status_code}")
+                
+                if retry_response.status_code == 200:
+                    # Process the retry response same as original success
+                    data = retry_response.json()
+                    print(f"📊 Market data received for {ticker} after token refresh")
+                    
+                    # Parse the response (reuse same logic)
+                    ticker_data = None
+                    
+                    if 'data' in data:
+                        market_data = data['data']
+                        
+                        if isinstance(market_data, dict) and ticker in market_data:
+                            ticker_data = market_data[ticker]
+                            print(f"✅ Found {ticker} data in market_data dict")
+                        elif isinstance(market_data, list):
+                            for item in market_data:
+                                if isinstance(item, dict) and item.get('symbol') == ticker:
+                                    ticker_data = item
+                                    print(f"✅ Found {ticker} data in market_data list")
+                                    break
+                        elif isinstance(market_data, dict) and market_data.get('symbol') == ticker:
+                            ticker_data = market_data
+                            print(f"✅ Found {ticker} data directly")
+                    
+                    if not ticker_data and 'data' in data and 'items' in data['data']:
+                        items = data['data']['items']
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict) and item.get('symbol') == ticker:
+                                    ticker_data = item
+                                    print(f"✅ Found {ticker} data in items array")
+                                    break
+                    
+                    if not ticker_data:
+                        print(f"⚠️ No ticker data found in retry response")
+                        ticker_data = data.get('data', {})
+                    
+                    # Extract market data (same logic as before)
+                    current_price = float(ticker_data.get('last', 0))
+                    if not current_price:
+                        current_price = float(ticker_data.get('mid', 0))
+                    if not current_price:
+                        current_price = float(ticker_data.get('mark', 0))
+                        
+                    bid = float(ticker_data.get('bid', 0))
+                    ask = float(ticker_data.get('ask', 0))
+                    volume = int(float(ticker_data.get('volume', 0))) if ticker_data.get('volume') else 0
+                    prev_close = float(ticker_data.get('prev-close', 0))
+                    if not prev_close:
+                        prev_close = float(ticker_data.get('close', current_price))
+                    
+                    if prev_close and current_price:
+                        price_change = current_price - prev_close
+                        percent_change = (price_change / prev_close) * 100 if prev_close != 0 else 0
+                    else:
+                        price_change = 0
+                        percent_change = 0
+                    
+                    market_info = {
+                        'symbol': ticker,
+                        'current_price': current_price,
+                        'bid': bid,
+                        'ask': ask,
+                        'volume': volume,
+                        'close': prev_close,
+                        'price_change': price_change,
+                        'percent_change': percent_change,
+                        'raw_data': ticker_data
+                    }
+                    
+                    print(f"💰 {ticker}: ${current_price:.2f} ({percent_change:+.2f}%)")
+                    print(f"📊 Bid/Ask: ${bid:.2f}/${ask:.2f}, Volume: {volume:,}")
+                    
+                    return market_info
+                else:
+                    print(f"❌ Retry request also failed with status: {retry_response.status_code}")
+                    print(f"Response: {retry_response.text}")
+                    return None
             else:
                 print(f"❌ Token refresh failed, user needs to re-authenticate")
             return None
@@ -896,7 +1053,7 @@ def get_options_chain_by_date(ticker=None, expiration_date=None):
         print(f"❌ Error getting options chain by date: {str(e)}")
         return None
 
-def get_spy_options_chain_by_date(expiration_date):
+def debug_todays_options(ticker=None, price_range=10):
     """
     Debug function to specifically look for today's options near current price
     
@@ -1197,7 +1354,8 @@ def get_options_chain(ticker=None, limit=50, feed='indicative', dte_only=True, d
             
             # Try automatic token refresh
             print("🔄 Attempting automatic token refresh...")
-            if refresh_access_token():
+            refresh_result = refresh_access_token()
+            if refresh_result and refresh_result.get('access_token'):
                 print("✅ Token refresh successful, retrying options chain...")
                 headers = get_authenticated_headers()
                 response = requests.get(options_url, headers=headers, params=params)
@@ -1453,6 +1611,538 @@ def get_options_chain(ticker=None, limit=50, feed='indicative', dte_only=True, d
         print(f"❌ Error getting options chain: {str(e)}")
         return None
 
+
+def get_options_market_data_bulk(option_symbols: List[str]) -> Dict[str, Dict]:
+    """
+    Get market data for multiple option symbols using bulk TastyTrade API calls
+    Uses /market-data/by-type endpoint with comma-separated symbols (max 100 per request)
+    
+    Parameters:
+    option_symbols: List of option symbols in TastyTrade format
+    
+    Returns:
+    Dict mapping symbol to market data
+    """
+    if not option_symbols:
+        print("❌ No option symbols provided to get_options_market_data_bulk")
+        return {}
+    
+    print(f"💰 Fetching market data for {len(option_symbols)} option symbols using bulk TastyTrade API...")
+    
+    try:
+        # Get authentication headers
+        headers = get_authenticated_headers()
+        if not headers:
+            print(f"❌ Could not get authentication headers")
+            return {}
+        
+        result = {}
+        batch_size = 100  # TastyTrade limit per request
+        total_batches = (len(option_symbols) + batch_size - 1) // batch_size
+        
+        print(f"📦 Processing {total_batches} batches of up to {batch_size} symbols each...")
+        
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(option_symbols))
+            batch_symbols = option_symbols[start_idx:end_idx]
+            
+            try:
+                # Create comma-separated symbol list for bulk query
+                symbol_list = ",".join(batch_symbols)
+                url = f"{TT_BASE_URL}/market-data/by-type"
+                params = {'equity-option': symbol_list}
+                
+                print(f"🔗 Batch {batch_num + 1}/{total_batches}: Calling bulk API with {len(batch_symbols)} symbols")
+                if batch_num == 0:  # Show URL for first batch
+                    print(f"🔗 URL: {url}")
+                    print(f"🔗 First few symbols: {batch_symbols[:3]}")
+                
+                response = requests.get(url, headers=headers, params=params)
+                
+                # Handle 401 authentication errors
+                if response.status_code == 401:
+                    print(f"🔒 Authentication failed for bulk market data (batch {batch_num + 1})")
+                    print(f"🔄 Attempting automatic token refresh...")
+                    
+                    refresh_result = refresh_access_token()
+                    if refresh_result and refresh_result.get('access_token'):
+                        print(f"✅ Token refreshed, retrying batch {batch_num + 1}...")
+                        headers = get_authenticated_headers()
+                        response = requests.get(url, headers=headers, params=params)
+                    else:
+                        print(f"❌ Token refresh failed for batch {batch_num + 1}")
+                        continue
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # Process bulk response
+                if 'data' in data and 'items' in data['data']:
+                    items = data['data']['items']
+                    print(f"✅ Batch {batch_num + 1}: Retrieved {len(items)} option quotes")
+                    
+                    for item in items:
+                        symbol = item.get('symbol', '')
+                        if symbol:
+                            result[symbol] = {
+                                'symbol': symbol,
+                                'bid': _safe_float(item.get('bid')),
+                                'ask': _safe_float(item.get('ask')),
+                                'last': _safe_float(item.get('last')),
+                                'bid_size': _safe_int(item.get('bid-size')),
+                                'ask_size': _safe_int(item.get('ask-size')),
+                                'volume': _safe_int(item.get('volume')),
+                                'open_interest': _safe_int(item.get('open-interest')),
+                                'mark': _safe_float(item.get('mark')),
+                                'timestamp': item.get('updated-at', datetime.now().isoformat())
+                            }
+                else:
+                    print(f"⚠️ Batch {batch_num + 1}: No data items in response")
+                    
+            except requests.exceptions.HTTPError as e:
+                print(f"⚠️ HTTP error for batch {batch_num + 1}: {e}")
+                continue
+            except Exception as e:
+                print(f"⚠️ Failed to process batch {batch_num + 1}: {e}")
+                continue
+        
+        print(f"✅ Bulk market data results: Retrieved {len(result)} symbols out of {len(option_symbols)} requested")
+        return result
+        
+    except Exception as e:
+        print(f"❌ Error in bulk market data fetch: {e}")
+        return {}
+
+
+def filter_closest_to_atm(calls: List[str], puts: List[str], current_price: float, max_each: int = 30) -> Dict[str, List[str]]:
+    """
+    Filter calls and puts to get the closest strikes to ATM (at-the-money)
+    
+    Parameters:
+    calls: List of call option symbols
+    puts: List of put option symbols  
+    current_price: Current stock price
+    max_each: Maximum number of calls and puts to return (default 30 each)
+    
+    Returns:
+    Dict with filtered 'calls' and 'puts' lists
+    """
+    print(f"🎯 Filtering to closest {max_each} calls and {max_each} puts around ATM price ${current_price:.2f}")
+    
+    # Parse and sort calls by distance from ATM
+    call_data = []
+    for symbol in calls:
+        parsed = parse_option_symbol(symbol)
+        if parsed:
+            distance = abs(parsed['strike'] - current_price)
+            call_data.append((symbol, parsed['strike'], distance))
+    
+    # Parse and sort puts by distance from ATM
+    put_data = []
+    for symbol in puts:
+        parsed = parse_option_symbol(symbol)
+        if parsed:
+            distance = abs(parsed['strike'] - current_price)
+            put_data.append((symbol, parsed['strike'], distance))
+    
+    # Sort by distance from current price (closest first)
+    call_data.sort(key=lambda x: x[2])
+    put_data.sort(key=lambda x: x[2])
+    
+    # Take the closest strikes
+    filtered_calls = [item[0] for item in call_data[:max_each]]
+    filtered_puts = [item[0] for item in put_data[:max_each]]
+    
+    if call_data:
+        call_strikes = [item[1] for item in call_data[:max_each]]
+        print(f"📞 Selected call strikes: ${min(call_strikes):.0f} to ${max(call_strikes):.0f}")
+    
+    if put_data:
+        put_strikes = [item[1] for item in put_data[:max_each]]
+        print(f"📋 Selected put strikes: ${min(put_strikes):.0f} to ${max(put_strikes):.0f}")
+    
+    print(f"✅ ATM filtering complete: {len(filtered_calls)} calls, {len(filtered_puts)} puts")
+    
+    return {
+        'calls': filtered_calls,
+        'puts': filtered_puts
+    }
+
+
+def _safe_int(value, default=0):
+    """Safely convert value to int, handling string floats like '11.0'"""
+    try:
+        if value is None or value == '':
+            return default
+        return int(float(value))
+    except (ValueError, TypeError):
+        return default
+
+def _safe_float(value, default=0.0):
+    """Safely convert value to float"""
+    try:
+        if value is None or value == '':
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
+    """
+    Get compact options chain from TastyTrade API
+    
+    Returns:
+    Dict with 'success' boolean and 'symbols' list
+    """
+    print(f"📋 Fetching compact options chain for {ticker}...")
+    
+    try:
+        # Get authentication headers
+        headers = get_authenticated_headers()
+        if not headers:
+            print("❌ No access token available")
+            return {'success': False, 'symbols': []}
+        
+        url = f"{TT_BASE_URL}/option-chains/{ticker}/compact"
+        
+        print(f"🔗 Calling: {url}")
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        print(f"🔍 Checking compact response structure...")
+        print(f"🔍 Response keys available: {len(list(data.keys())) if isinstance(data, dict) else 0}")
+        
+        if 'data' in data and 'items' in data['data'] and data['data']['items']:
+            raw_items = data['data']['items']
+            print(f"📋 Found {len(raw_items) if raw_items else 0} option items")
+            
+            # Extract symbols from the data structure
+            symbols = []
+            if isinstance(raw_items, list):
+                for item in raw_items:
+                    if isinstance(item, dict):
+                        # If it's a dict, look for symbols in the 'symbols' field
+                        if 'symbols' in item and isinstance(item['symbols'], list):
+                            symbols.extend(item['symbols'])
+                        else:
+                            print(f"⚠️ Unexpected item structure: {item}")
+                    elif isinstance(item, str):
+                        # If it's already a string symbol, use it directly
+                        symbols.append(item)
+                    else:
+                        print(f"⚠️ Unknown item type: {type(item)} - {item}")
+            
+            print(f"✅ Extracted {len(symbols)} option symbols for {ticker}")
+            print(f"🔍 Sample extracted symbols: {symbols[:5] if symbols else 'None'}")
+            return {'success': True, 'symbols': symbols}
+        else:
+            print(f"❌ No option symbols found in response for {ticker}")
+            return {'success': False, 'symbols': []}
+            
+    except Exception as e:
+        print(f"❌ Error fetching compact options chain for {ticker}: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'symbols': []}
+
+
+def get_spy_expiration_date(dte: int) -> str:
+    """
+    Get the correct SPY expiration date for a given DTE.
+    SPY options expire on Fridays (with some exceptions for holidays/monthlies).
+    
+    For SPY, we need to find the Friday that is closest to but >= DTE days from today.
+    
+    Parameters:
+    dte: Days to expiration requested
+    
+    Returns:
+    String in 'YYMMDD' format for the target expiration
+    """
+    today = datetime.now()
+    print(f"📅 Today is {today.strftime('%A, %Y-%m-%d')}")
+    
+    if dte == 0:
+        # 0DTE means same day - but only works on expiration days (usually Friday)
+        target_date = today
+        print(f"🎯 0DTE requested: using today ({target_date.strftime('%Y-%m-%d')})")
+    else:
+        # Find all upcoming Fridays and pick the one closest to DTE days away
+        upcoming_fridays = []
+        
+        # Look ahead up to 8 weeks to find Fridays
+        for weeks_ahead in range(8):
+            # Start from today and find the next Friday
+            current_date = today + timedelta(days=7 * weeks_ahead)
+            
+            # Find the Friday of this week
+            days_until_friday = (4 - current_date.weekday()) % 7
+            if current_date.weekday() > 4 or (current_date.weekday() == 4 and weeks_ahead == 0):
+                # If we're past Friday this week, or it's Friday and we're looking at this week,
+                # move to next Friday
+                days_until_friday += 7
+            
+            friday_date = current_date + timedelta(days=days_until_friday)
+            days_from_today = (friday_date - today).days
+            
+            if days_from_today >= dte:
+                upcoming_fridays.append((friday_date, days_from_today))
+        
+        # Pick the Friday that's closest to our target DTE
+        if upcoming_fridays:
+            target_date = min(upcoming_fridays, key=lambda x: abs(x[1] - dte))[0]
+            actual_dte = (target_date - today).days
+            print(f"🎯 {dte}DTE requested: targeting Friday {target_date.strftime('%Y-%m-%d')} (actual {actual_dte}DTE)")
+        else:
+            # Fallback - just add DTE days and find nearest Friday
+            target_date = today + timedelta(days=dte)
+            current_weekday = target_date.weekday()
+            if current_weekday != 4:  # Not Friday
+                if current_weekday < 4:
+                    target_date += timedelta(days=4 - current_weekday)
+                else:
+                    target_date += timedelta(days=7 - current_weekday + 4)
+            print(f"🎯 {dte}DTE requested: fallback to Friday {target_date.strftime('%Y-%m-%d')}")
+    
+    target_str = target_date.strftime('%y%m%d')
+    print(f"🎯 Target expiration string: {target_str}")
+    return target_str
+
+
+def filter_options_by_criteria(symbols: List[str], current_price: float, dte: int, strike_range_pct: float = None) -> Dict[str, List[str]]:
+    """
+    Filter option symbols based on expiration date and strike range
+    
+    Parameters:
+    symbols: List of option symbols
+    current_price: Current stock price
+    dte: Days to expiration target
+    strike_range_pct: Strike range percentage (default varies by DTE)
+    
+    Returns:
+    Dict with 'calls' and 'puts' lists of filtered symbols
+    """
+    # Set default strike range based on DTE
+    if strike_range_pct is None:
+        if dte == 0:
+            strike_range_pct = 0.08  # 8% for 0DTE (wider range)
+        elif dte <= 2:
+            strike_range_pct = 0.06  # 6% for 1-2DTE
+        else:
+            strike_range_pct = 0.05  # 5% for longer DTE
+
+    print(f"🔍 Filtering options for {dte}DTE, price ${current_price:.2f}, range ±{strike_range_pct*100:.1f}%...")
+    
+    # Debug: Check what we're starting with
+    print(f"🔍 Total symbols to filter: {len(symbols)}")
+    if len(symbols) > 0:
+        print(f"🔍 First few symbols: {symbols[:5]}")
+    else:
+        print("❌ No symbols provided to filter!")
+        return {'calls': [], 'puts': [], 'target_date': '', 'strike_range': {'min': 0, 'max': 0}}
+    
+    # Get the correct SPY expiration date for the requested DTE
+    target_str = get_spy_expiration_date(dte)
+    
+    # Calculate strike range (FIXED: use ± not *)
+    strike_range = current_price * strike_range_pct
+    min_strike = current_price - strike_range
+    max_strike = current_price + strike_range
+    
+    print(f"🎯 Strike range: ${min_strike:.2f} - ${max_strike:.2f}")
+    
+    calls = []
+    puts = []
+    expiration_dates_seen = set()
+    strikes_seen = set()
+    
+    for symbol in symbols:
+        parsed = parse_option_symbol(symbol)
+        if not parsed:
+            continue
+            
+        # Track what we're seeing for debugging
+        expiration_dates_seen.add(parsed['expiration'])
+        strikes_seen.add(parsed['strike'])
+        
+        # Check expiration date
+        if parsed['expiration'] != target_str:
+            # Debug: show what we're comparing
+            if len(calls) == 0 and len(puts) == 0:  # Only log for first few mismatches
+                print(f"🔍 Date mismatch: found '{parsed['expiration']}' vs target '{target_str}' for symbol {symbol}")
+            continue
+            
+        # Check strike range
+        if not (min_strike <= parsed['strike'] <= max_strike):
+            continue
+            
+        # Add to appropriate list
+        if parsed['option_type'] == 'call':
+            calls.append(symbol)
+        else:
+            puts.append(symbol)
+    
+    # Debug information
+    print(f"🔍 Expiration dates found: {sorted(list(expiration_dates_seen))[:10]}")
+    print(f"🔍 Strike prices found: {sorted(list(strikes_seen))[:10]}")
+    print(f"✅ Filtered to {len(calls)} calls and {len(puts)} puts")
+    
+    return {
+        'calls': calls,
+        'puts': puts,
+        'target_date': target_str,
+        'strike_range': {'min': min_strike, 'max': max_strike}
+    }
+
+
+def get_options_chain_data(ticker: str, dte: int, current_price: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Get comprehensive options chain data for a specific DTE using TastyTrade API
+    This is the main function for getting filtered options data with market prices
+    
+    Parameters:
+    ticker: Stock symbol (e.g., 'SPY')
+    dte: Days to expiration (0 for same-day expiration)
+    current_price: Current stock price (fetched if not provided)
+    
+    Returns:
+    Dict containing calls, puts, and metadata
+    """
+    print(f"🎯 Generating comprehensive options analysis for {ticker} with {dte}DTE...")
+    
+    try:
+        # Get current price if not provided
+        if current_price is None:
+            print(f"📈 Getting current price for {ticker}...")
+            from tt_data import get_current_price
+            current_price = get_current_price(ticker)
+            
+        if not current_price:
+            print(f"❌ Could not get current price for {ticker}")
+            return {}
+        
+        print(f"📈 Current {ticker} price: ${current_price:.2f}")
+        
+        # Step 1: Get compact options chain (all symbols)
+        print(f"📋 Step 1: Getting compact options chain...")
+        compact_chain = get_compact_options_chain(ticker)
+        if not compact_chain.get('success'):
+            print(f"❌ Failed to get compact options chain for {ticker}")
+            return {}
+        
+        all_symbols = compact_chain.get('symbols', [])
+        if not all_symbols:
+            print(f"❌ No option symbols found for {ticker}")
+            return {}
+        
+        print(f"✅ Got {len(all_symbols)} total option symbols")
+        print(f"🔍 Sample symbols: {all_symbols[:3] if all_symbols else 'None'}")
+        
+        # Step 2: Filter symbols by DTE and strike range
+        print(f"🔍 Step 2: Filtering symbols by {dte}DTE criteria...")
+        print(f"🔍 About to call filter_options_by_criteria with:")
+        print(f"   - {len(all_symbols)} symbols")
+        print(f"   - current_price: ${current_price:.2f}")
+        print(f"   - dte: {dte}")
+        
+        filtered_symbols = filter_options_by_criteria(all_symbols, current_price, dte)
+        
+        call_symbols = filtered_symbols['calls']
+        put_symbols = filtered_symbols['puts']
+        
+        print(f"🔍 Filter results: {len(call_symbols)} calls, {len(put_symbols)} puts")
+        
+        if not call_symbols and not put_symbols:
+            print(f"❌ No options found matching {dte}DTE criteria")
+            return {}
+        
+        # Step 2.5: Filter to closest 30 calls and 30 puts around ATM
+        print(f"🎯 Step 2.5: Filtering to closest options around ATM...")
+        atm_filtered = filter_closest_to_atm(call_symbols, put_symbols, current_price, max_each=30)
+        call_symbols = atm_filtered['calls']
+        put_symbols = atm_filtered['puts']
+        
+        # Step 3: Get market data for filtered symbols using BULK API
+        print(f"💰 Step 3: Getting market data for {len(call_symbols + put_symbols)} symbols using bulk API...")
+        all_filtered_symbols = call_symbols + put_symbols
+        market_data = get_options_market_data_bulk(all_filtered_symbols)
+        
+        print(f"💰 Market data retrieved for {len(market_data)} symbols")
+        
+        # Step 4: Organize data by calls/puts with parsed details
+        print(f"📊 Step 4: Organizing final data...")
+        calls = []
+        puts = []
+        
+        print(f"🔍 [LOGGING] Processing {len(call_symbols)} call symbols...")
+        for symbol in call_symbols:
+            parsed = parse_option_symbol(symbol)
+            if parsed and symbol in market_data:
+                option_data = market_data[symbol].copy()
+                option_data.update({
+                    'strike': parsed['strike'],
+                    'expiration': parsed['expiration_full'],
+                    'option_type': parsed['option_type']
+                })
+                calls.append(option_data)
+        
+        print(f"🔍 [LOGGING] Processing {len(put_symbols)} put symbols...")
+        for symbol in put_symbols:
+            parsed = parse_option_symbol(symbol)
+            if parsed and symbol in market_data:
+                option_data = market_data[symbol].copy()
+                option_data.update({
+                    'strike': parsed['strike'],
+                    'expiration': parsed['expiration_full'],
+                    'option_type': parsed['option_type']
+                })
+                puts.append(option_data)
+            else:
+                if not parsed:
+                    print(f"   ⚠️ [LOGGING] Failed to parse put symbol: {symbol}")
+                if symbol not in market_data:
+                    print(f"   ⚠️ [LOGGING] No market data for put symbol: {symbol}")
+        
+        # Sort by strike price
+        calls.sort(key=lambda x: x['strike'])
+        puts.sort(key=lambda x: x['strike'])
+        
+        print(f"✅ Final results: {len(calls)} calls, {len(puts)} puts with market data")
+        if puts:
+            put_strikes = [p.get('strike', 0) for p in puts[:5]]
+            print(f"🔍 [LOGGING] Final put strikes: {put_strikes}")
+        else:
+            print(f"❌ [LOGGING] No puts in final results!")
+        
+        return {
+            'success': True,
+            'ticker': ticker,
+            'current_price': current_price,
+            'dte': dte,
+            'calls': calls,
+            'puts': puts,
+            'total_options': len(calls) + len(puts),
+            'market_data_coverage': f"{len(market_data)}/{len(all_filtered_symbols)}",
+            'filters': filtered_symbols.get('strike_range', {}),
+            'target_expiration': filtered_symbols.get('target_date', '')
+        }
+        
+    except Exception as e:
+        print(f"❌ Error in get_options_chain_data for {ticker}: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'ticker': ticker,
+            'dte': dte,
+            'error': str(e)
+        }
+
+
 def get_spy_options_chain(limit=50, feed='indicative', dte_only=True, dte=None, strike_range=None, option_type=None, ticker=None):
     """
     Legacy function - Fetch options chain from Alpaca Market Data API
@@ -1477,71 +2167,73 @@ def get_spy_options_chain(limit=50, feed='indicative', dte_only=True, dte=None, 
 
 def parse_option_symbol(symbol):
     """
-    Parse option symbol to extract expiration date, option type, and strike price
+    Parse TastyTrade option symbol to extract expiration date, option type, and strike price
     
-    Examples: 
-    - SPY250806C00515000 (3-char ticker)
-    - TQQQ250815C00096000 (4-char ticker)
+    TastyTrade Format: 'SPY   280121P00900000'
+    - SPY: underlying (3 chars)
+    - "   ": padding spaces (3 chars)  
+    - 280121: expiration date (YYMMDD, 6 chars)
+    - P: option type (C/P, 1 char)
+    - 00900000: strike price * 1000 (8 chars)
     
-    Format: [TICKER][YYMMDD][C/P][STRIKE*1000]
+    Total length: 21 characters
     
     Returns:
-    - Dictionary with parsed components
+    - Dictionary with parsed components or None if invalid
     """
-    if len(symbol) < 15:
+    if not isinstance(symbol, str) or len(symbol) < 18:
+        print(f"❌ Invalid symbol format: {symbol} (length: {len(symbol) if symbol else 0})")
         return None
     
     try:
-        # Extract ticker - can be 3 or 4 characters
-        # Look for the date pattern (6 digits) to determine ticker length
-        ticker_length = None
-        for i in range(3, 6):  # Check for 3, 4, or 5 character tickers
-            if i + 6 < len(symbol):
-                potential_date = symbol[i:i+6]
-                if potential_date.isdigit():
-                    ticker_length = i
-                    break
+        # TastyTrade format: "SPY   280121P00900000"
+        # Extract parts based on fixed positions
+        underlying = symbol[:3].strip()  # First 3 chars (remove any trailing spaces)
+        # Skip the padding spaces (chars 3-5)
+        exp_date_str = symbol[6:12]      # Characters 6-11 (6 digits)
+        option_type = symbol[12]         # Character 12 (C or P)
+        strike_str = symbol[13:21]       # Characters 13-20 (8 digits)
         
-        if ticker_length is None:
-            print(f"❌ Could not determine ticker length for symbol: {symbol}")
+        # Validate components
+        if not underlying or len(underlying) == 0:
+            print(f"❌ Invalid underlying in symbol: {symbol}")
             return None
-        
-        underlying = symbol[:ticker_length]  # Variable length ticker
-        exp_date_str = symbol[ticker_length:ticker_length+6]  # 6-digit date
-        option_type = symbol[ticker_length+6]  # C or P
-        strike_str = symbol[ticker_length+7:]  # Strike price
-        
-        # Validate that we have the expected lengths
+            
         if not exp_date_str.isdigit() or len(exp_date_str) != 6:
-            print(f"❌ Invalid date format in symbol: {symbol} (date: {exp_date_str})")
+            print(f"❌ Invalid date format in symbol: {symbol} (date: '{exp_date_str}')")
             return None
         
         if option_type not in ['C', 'P']:
-            print(f"❌ Invalid option type in symbol: {symbol} (type: {option_type})")
+            print(f"❌ Invalid option type in symbol: {symbol} (type: '{option_type}')")
             return None
         
-        if not strike_str.isdigit():
-            print(f"❌ Invalid strike format in symbol: {symbol} (strike: {strike_str})")
+        if not strike_str.isdigit() or len(strike_str) != 8:
+            print(f"❌ Invalid strike format in symbol: {symbol} (strike: '{strike_str}')")
             return None
         
         # Parse expiration date
         exp_year = 2000 + int(exp_date_str[:2])
         exp_month = int(exp_date_str[2:4])
         exp_day = int(exp_date_str[4:6])
-        exp_date = datetime(exp_year, exp_month, exp_day).strftime('%Y-%m-%d')
+        
+        # Create both compact and full date formats
+        expiration_full = f"{exp_year:04d}-{exp_month:02d}-{exp_day:02d}"
+        expiration_compact = exp_date_str  # Keep YYMMDD format for filtering
         
         # Parse strike price (divide by 1000)
-        strike_price = int(strike_str) / 1000
+        strike_price = int(strike_str) / 1000.0
         
-        # Option type
-        option_type_full = "Call" if option_type == "C" else "Put"
+        # Option type (normalize to lowercase for consistency)
+        option_type_full = "call" if option_type == "C" else "put"
         
         return {
+            'symbol': symbol,
             'underlying': underlying,
-            'expiration_date': exp_date,
+            'expiration': expiration_compact,  # YYMMDD format for filtering
+            'expiration_full': expiration_full,  # YYYY-MM-DD format for display
             'option_type': option_type_full,
-            'strike_price': strike_price,
-            'symbol': symbol
+            'strike': strike_price,
+            'strike_raw': int(strike_str)
         }
         
     except (ValueError, IndexError) as e:
@@ -1744,7 +2436,7 @@ def main():
     """
     Main function to test SPY 0DTE options chain functionality
     """
-    print("🚀 Fetching SPY 0DTE Options Chain from Alpaca...")
+    print("🚀 Fetching SPY 0DTE Options Chain from TastyTrade...")
     print("=" * 60)
     
     # Get current SPY price and calculate trading range
@@ -1870,7 +2562,7 @@ def format_real_historical_options_data(bars_data, target_date, target_time, tic
             'target_date': target_date,
             'target_time': target_time,
             'ticker_price': ticker_price,
-            'data_source': 'alpaca_historical_real',
+            'data_source': 'tastytrade_historical_real',
             'timestamp': f"{target_date}T{target_time}",
             'total_symbols_requested': len(bars_data)
         },
@@ -2027,7 +2719,7 @@ def format_historical_options_data(raw_data, data_type, target_date, target_time
             'target_time': target_time,
             'data_type': data_type,
             'timestamp': f"{target_date}T{target_time}",
-            'source': 'alpaca_historical'
+            'source': 'tastytrade_historical'
         },
         'options_chain': {},
         'summary': {
@@ -2183,7 +2875,11 @@ def get_enhanced_greeks_data(ticker='SPY', dte=0, current_price=None):
         strikes = []
         for i in range(-strikes_each_side, strikes_each_side + 1):
             strike = current_price + (i * strike_increment)
-            strikes.append(round(strike, 2))
+            # Round to whole numbers for SPY to match actual option strikes
+            if ticker == 'SPY':
+                strikes.append(round(strike))
+            else:
+                strikes.append(round(strike, 2))
         
         # Get live options data for implied volatility estimation
         options_data = get_spy_options_chain(limit=50, dte_only=False, dte=dte, ticker=ticker)

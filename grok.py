@@ -20,11 +20,13 @@ from tt_data import (
     get_market_overview, 
     get_ticker_recent_data,
     get_ticker_recent_data,
-    calculate_bollinger_bands,
-    get_current_market_state,
     get_spy_data_for_dte,
     get_dte_technical_analysis,
-    get_historical_data_alpaca,
+    get_historical_data_tastytrade
+)
+from market_data import (
+    calculate_bollinger_bands,
+    get_current_market_state,
     TechnicalAnalysisManager
 )
 from tt import (
@@ -38,10 +40,11 @@ from tt import (
 )
 # Try to import dte_manager, but make it optional
 try:
-    from dte_manager import get_current_dte, dte_manager
+    from dte_manager import get_current_dte, DTEManager
     DTE_MANAGER_AVAILABLE = True
+    dte_manager = DTEManager()  # Create instance for successful import
 except ImportError as e:
-    print(f"⚠️  DTE manager not available (missing alpaca dependency): {e}")
+    print(f"⚠️  DTE manager not available (missing dependency): {e}")
     DTE_MANAGER_AVAILABLE = False
     # Create simple fallback functions
     def get_current_dte():
@@ -120,6 +123,12 @@ class GrokAnalyzer:
         
         try:
             print("🤖 Sending request to Grok AI...")
+            print(f"📝 Prompt length: {len(prompt)} characters")
+            print(f"🔍 Prompt preview (first 500 chars):")
+            print("-" * 50)
+            print(prompt[:500] + "..." if len(prompt) > 500 else prompt)
+            print("-" * 50)
+            
             # Add timeout to prevent hanging
             response = requests.post(
                 self.base_url, 
@@ -155,19 +164,69 @@ class GrokAnalyzer:
         except Exception as e:
             print(f"❌ Unexpected error processing Grok response: {e}")
             return None
-
-def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ticker=None):
+    
+    def send_analysis_request(self, ticker, dte):
+        """
+        High-level method to perform comprehensive market analysis
+        
+        Parameters:
+        ticker: Stock ticker symbol
+        dte: Days to expiration
+        
+        Returns:
+        Grok AI analysis response
+        """
+        print(f"🔍 Starting comprehensive analysis for {ticker} {dte}DTE...")
+        
+        # Get comprehensive market data (using the first function with proper params)
+        market_data = get_comprehensive_market_data(include_full_options_chain=True, dte=dte, ticker=ticker)
+        
+        if not market_data:
+            print(f"❌ Failed to gather market data for {ticker} {dte}DTE")
+            return None
+        
+        print(f"📋 Generating comprehensive v7 prompt...")
+        
+        # Generate the comprehensive prompt
+        prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
+        
+        print(f"✅ Generated {len(prompt)} character prompt")
+        print(f"🔍 Prompt validation:")
+        print(f"   - Contains 'expert options trader': {'expert options trader' in prompt}")
+        print(f"   - Contains 'JSON package': {'JSON package' in prompt}")
+        print(f"   - Contains strategy options: {'BULL_PUT_SPREAD' in prompt and 'BEAR_CALL_SPREAD' in prompt}")
+        
+        # Send to Grok
+        return self.send_to_grok(prompt)
+def get_comprehensive_market_data(ticker=None, dte=None, include_full_options_chain=False):
     """
     Gather all available market data for comprehensive analysis using streamlined TastyTrade data
     
+    This function supports multiple calling patterns:
+    1. get_comprehensive_market_data(ticker, dte) - positional arguments
+    2. get_comprehensive_market_data(include_full_options_chain=True, dte=dte, ticker=ticker) - keyword arguments
+    3. get_comprehensive_market_data(ticker="SPY", dte=0, include_full_options_chain=True) - mixed arguments
+    
     Parameters:
-    include_full_options_chain: If True, includes complete options chain for specified DTE
+    ticker: Stock ticker (if None, uses current ticker from config)
     dte: Days to expiration (if None, uses current DTE from manager)
-    ticker: Stock ticker (if None, uses current ticker from manager)
+    include_full_options_chain: If True, includes complete options chain for specified DTE
     
     Returns:
     Dictionary containing all market data components optimized for the specified DTE
     """
+    # Handle different calling patterns
+    # If first argument is a string, assume it's ticker (positional call from app.py)
+    if isinstance(ticker, str):
+        # Standard call: get_comprehensive_market_data(ticker, dte)
+        pass
+    elif isinstance(ticker, bool):
+        # Legacy call: get_comprehensive_market_data(include_full_options_chain, dte, ticker)
+        # Shift parameters
+        include_full_options_chain = ticker
+        ticker = include_full_options_chain if isinstance(include_full_options_chain, str) else None
+        # This handles the old signature, but let's not support it to avoid confusion
+        
     # Use current DTE if none specified, but allow override
     if dte is None:
         dte = get_current_dte()
@@ -175,12 +234,13 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
     # Use current ticker if none specified    
     if ticker is None:
         ticker = config.DEFAULT_TICKER
+        ticker = config.DEFAULT_TICKER
         
     print(f"🔍 Gathering comprehensive market data for {ticker} {dte}DTE analysis (v7 comprehensive)...")
     
     try:
         # Use our streamlined data collection approach
-        from streamlined_data import get_streamlined_market_data
+        from market_data import get_streamlined_market_data
         
         print(f"📊 Using streamlined TastyTrade data collection...")
         streamlined_data = get_streamlined_market_data(ticker, dte)
@@ -246,7 +306,7 @@ def get_comprehensive_market_data(include_full_options_chain=False, dte=None, ti
         traceback.print_exc()
         return None
 
-def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
+def get_streamlined_market_data_wrapper(ticker: str, dte: int) -> Dict:
     """
     Enhanced comprehensive market data collection using streamlined TastyTrade-only approach
     """
@@ -254,7 +314,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     
     try:
         # Use the streamlined data collection approach
-        from streamlined_data import get_streamlined_market_data
+        from market_data import get_streamlined_market_data
         
         data = get_streamlined_market_data(ticker, dte)
         
@@ -357,7 +417,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     bb_interval = dte_config['interval']  # DTE-specific interval
     
     # Use TastyTrade data for technical analysis
-    ticker_data = get_historical_data_alpaca(ticker, period=bb_period, interval=bb_interval)
+    ticker_data = get_historical_data_tastytrade(ticker, period=bb_period, interval=bb_interval)
     if ticker_data is not None and not ticker_data.empty:
         bb_data = calculate_bollinger_bands(ticker_data)
         market_state = get_current_market_state(bb_data)
@@ -386,14 +446,14 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     dte_display = dte_manager.get_dte_display_name(dte)
     print(f"⚡ Fetching enhanced {dte_display} options chain with bid/ask data...")
     
-    # Get options chain with enhanced data
+    # Get options chain with enhanced data - increased limits for more strikes
     if include_full_options_chain:
         # For longer DTEs, get broader strike range
-        limit = 200 if dte == 0 else 300  # More strikes for longer DTEs
+        limit = 400 if dte == 0 else 500  # Increased from 200/300 to 400/500
         options_data = get_spy_options_chain(limit=limit, dte=dte, ticker=ticker)
     else:
         # For optimization, use focused strike range around current price
-        limit = 100 if dte == 0 else 150  # Focused for 0DTE
+        limit = 200 if dte == 0 else 300  # Increased from 100/150 to 200/300
         options_data = get_spy_options_chain(limit=limit, dte=dte, ticker=ticker)
         
     if options_data:
@@ -402,7 +462,9 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
             options_analysis = analyze_options_flow(formatted_options)
             
             # Enhanced options analysis with bid/ask spreads
-            current_price = ticker_recent.get('current_price', 650) if ticker_recent else 650
+            # Use enhanced market data current price instead of hardcoded fallback
+            enhanced_current_price = streamlined_data.get('ticker_data', {}).get('current_price', 0.0)
+            current_price = enhanced_current_price if enhanced_current_price > 0 else ticker_recent.get('current_price', 0.0)
             
             # Get ATM and near-the-money options with detailed pricing
             atm_strike = round(current_price)
@@ -522,7 +584,7 @@ def get_comprehensive_market_data(ticker: str, dte: int) -> Dict:
     bb_interval = dte_config['interval']  # DTE-specific interval
     
     # Use Tasty Trade data instead of yfinance
-    ticker_data = get_historical_data_alpaca(ticker, period=bb_period, interval=bb_interval)
+    ticker_data = get_historical_data_tastytrade(ticker, period=bb_period, interval=bb_interval)
     if ticker_data is not None and not ticker_data.empty:
         bb_data = calculate_bollinger_bands(ticker_data)
         market_state = get_current_market_state(bb_data)
@@ -754,20 +816,37 @@ def analyze_spread_opportunities(options_df, ticker_range):
     
     return spread_opportunities
 
-def format_compact_options_table(options_list, option_type, current_price):
+def format_compact_options_table(options_list, option_type, current_price, greeks_data=None):
     """
-    Format the compact options data into a readable table string
+    Format the compact options data into a readable table string with Greeks
     
     Parameters:
     options_list: List of option dictionaries from compact options chain
     option_type: 'calls' or 'puts'
     current_price: Current stock price for reference
+    greeks_data: Optional Greeks data from get_enhanced_greeks_data
     
     Returns:
-    Formatted string table of options data
+    Formatted string table of options data with Greeks
     """
+    print(f"📊 [LOGGING] format_compact_options_table called:")
+    print(f"   📊 option_type: {option_type}")
+    print(f"   📊 current_price: ${current_price:.2f}")
+    print(f"   📊 options_list length: {len(options_list) if options_list else 0}")
+    print(f"   📊 greeks_data available: {greeks_data is not None}")
+    if greeks_data and 'options_greeks' in greeks_data:
+        print(f"   📊 greeks strikes available: {len(greeks_data['options_greeks'])}")
+        sample_strikes = [g['strike'] for g in greeks_data['options_greeks'][:5]]
+        print(f"   📊 sample greeks strikes: {sample_strikes}")
+    
     if not options_list:
+        print(f"   ❌ [LOGGING] No {option_type} in options_list - returning 'No {option_type} available'")
         return f"No {option_type} available"
+    
+    # Log first few option strikes for debugging
+    if len(options_list) > 0:
+        sample_strikes = [opt.get('strike', 0) for opt in options_list[:5]]
+        print(f"   📊 [LOGGING] Sample {option_type} strikes: {sample_strikes}")
     
     # Filter for ATM to OTM options and limit to <50 total contracts as requested
     filtered_options = []
@@ -775,15 +854,34 @@ def format_compact_options_table(options_list, option_type, current_price):
     for opt in options_list:
         strike = float(opt.get('strike', 0))
         
-        # Filter for ATM to OTM based on option type
+        # Filter for ATM to OTM options with expanded range (+10 strikes each direction)
         if option_type == 'calls':
-            # For calls: ATM to OTM (strike >= current_price)
-            if strike >= current_price - 3 and strike <= current_price + 15:
+            # For calls: ATM to OTM (strike >= current_price) - expanded range
+            # OTM calls have strikes ABOVE current price
+            if strike >= current_price - 5 and strike <= current_price + 25:  # Increased from +15 to +25
                 filtered_options.append(opt)
         else:  # puts
-            # For puts: ATM to OTM (strike <= current_price)  
-            if strike <= current_price + 3 and strike >= current_price - 15:
+            # For puts: ATM to OTM (strike <= current_price) - expanded range
+            # OTM puts have strikes BELOW current price
+            if strike <= current_price + 5 and strike >= current_price - 25:  # Increased from -15 to -25
                 filtered_options.append(opt)
+    
+    print(f"   📊 [LOGGING] After filtering: {len(filtered_options)} {option_type}")
+    if option_type == 'puts':
+        print(f"   📊 [LOGGING] Put filter range (ATM-OTM): ${current_price - 25:.2f} <= strike <= ${current_price + 5:.2f}")
+        if len(filtered_options) > 0:
+            filtered_strikes = [opt.get('strike', 0) for opt in filtered_options[:5]]
+            print(f"   📊 [LOGGING] Filtered put strikes: {filtered_strikes}")
+        else:
+            print(f"   ❌ [LOGGING] No puts passed filter - checking why...")
+            all_strikes = [opt.get('strike', 0) for opt in options_list[:10]]
+            print(f"   📊 [LOGGING] Available put strikes: {all_strikes}")
+            below_current = [s for s in all_strikes if s <= current_price + 5]
+            above_current = [s for s in all_strikes if s > current_price + 5]
+            print(f"   📊 [LOGGING] Strikes <= current+5 (should be included): {below_current}")
+            print(f"   📊 [LOGGING] Strikes > current+5 (excluded): {above_current}")
+    elif option_type == 'calls':
+        print(f"   📊 [LOGGING] Call filter range (ATM-OTM): ${current_price - 5:.2f} <= strike <= ${current_price + 25:.2f}")
     
     # Sort by strike and limit to reasonable number for analysis
     if option_type == 'calls':
@@ -791,16 +889,39 @@ def format_compact_options_table(options_list, option_type, current_price):
     else:
         filtered_options.sort(key=lambda x: float(x.get('strike', 0)), reverse=True)
     
-    # Limit to 10 each to get 20 total (under 50 as requested)
-    filtered_options = filtered_options[:10]
+    # Limit to 15 each to get more strikes (30 total instead of 20)
+    filtered_options = filtered_options[:15]
     
     if not filtered_options:
+        print(f"   ❌ [LOGGING] No {option_type} after final filtering - returning 'No suitable ATM-OTM {option_type} found'")
         return f"No suitable ATM-OTM {option_type} found"
     
-    # Create table format
+    print(f"   ✅ [LOGGING] Final {option_type} count: {len(filtered_options)}")
+    
+    # Helper function to get Greeks for a specific strike
+    def get_greeks_for_strike(strike, option_type, greeks_data):
+        """Get Greeks data for a specific strike and option type"""
+        if not greeks_data or 'options_greeks' not in greeks_data:
+            return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
+        
+        for greek_entry in greeks_data['options_greeks']:
+            if abs(greek_entry['strike'] - strike) < 0.01:  # Match strike within penny
+                # Extract the specific option type data (call or put)
+                option_data = greek_entry.get(option_type, {})
+                if option_data:
+                    return {
+                        'delta': float(option_data.get('delta', 0)),
+                        'gamma': float(option_data.get('gamma', 0)),
+                        'theta': float(option_data.get('theta', 0)),
+                        'vega': float(option_data.get('vega', 0))
+                    }
+        
+        return {'delta': 0, 'gamma': 0, 'theta': 0, 'vega': 0}
+    
+    # Create enhanced table format with Greeks
     table_lines = []
-    table_lines.append("Strike | Bid | Ask | Last | Volume | OI | Spread")
-    table_lines.append("-------|-----|-----|------|--------|----|---------")
+    table_lines.append("Strike | Bid | Ask | Last | Volume | OI | Δ | Γ | Θ | ν | Spread")
+    table_lines.append("-------|-----|-----|------|--------|----|----|----|----|----|---------")
     
     for opt in filtered_options:
         strike = float(opt.get('strike', 0))
@@ -813,6 +934,21 @@ def format_compact_options_table(options_list, option_type, current_price):
         # Calculate bid-ask spread
         spread = ask - bid if ask > bid else 0
         
+        # Get Greeks for this strike
+        option_type_singular = option_type.rstrip('s')  # Convert 'calls' -> 'call', 'puts' -> 'put'
+        greeks = get_greeks_for_strike(strike, option_type_singular, greeks_data)
+        delta = greeks.get('delta', 0)
+        gamma = greeks.get('gamma', 0)
+        theta = greeks.get('theta', 0)
+        vega = greeks.get('vega', 0)
+        
+        # Debug: Log the strike lookup
+        if greeks_data and 'options_greeks' in greeks_data and strike in [662, 663, 664, 665, 666, 667, 668]:
+            available_strikes = [g['strike'] for g in greeks_data['options_greeks']]
+            print(f"   🔍 [DEBUG] Looking for strike ${strike} in Greeks data")
+            print(f"   🔍 [DEBUG] Available Greeks strikes: {available_strikes}")
+            print(f"   🔍 [DEBUG] Found Greeks: δ={delta:.3f}, γ={gamma:.4f}")
+        
         # Format moneyness indicator
         if option_type == 'calls':
             moneyness = "ITM" if strike < current_price else "ATM" if abs(strike - current_price) < 1 else "OTM"
@@ -820,7 +956,7 @@ def format_compact_options_table(options_list, option_type, current_price):
             moneyness = "ITM" if strike > current_price else "ATM" if abs(strike - current_price) < 1 else "OTM"
         
         table_lines.append(
-            f"${strike:g} | ${bid:.2f} | ${ask:.2f} | ${last:.2f} | {volume:,} | {open_interest:,} | ${spread:.2f} {moneyness}"
+            f"${strike:g} | ${bid:.2f} | ${ask:.2f} | ${last:.2f} | {volume:,} | {open_interest:,} | {delta:.3f} | {gamma:.4f} | {theta:.2f} | {vega:.2f} | ${spread:.2f} {moneyness}"
         )
     
     return "\n".join(table_lines)
@@ -838,15 +974,39 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     """
     from datetime import datetime
     
+    # DEBUG: Print options chain data structure
+    options_chain = market_data.get('options_chain', {})
+    print(f"🔍 [LOGGING] options_chain keys: {list(options_chain.keys())}")
+    if options_chain:
+        calls = options_chain.get('calls', [])
+        puts = options_chain.get('puts', [])
+        print(f"🔍 [LOGGING] Found {len(calls)} calls and {len(puts)} puts in options_chain")
+        if calls:
+            print(f"🔍 [LOGGING] Sample call data: {calls[0] if calls else 'None'}")
+        if puts:
+            print(f"🔍 [LOGGING] Sample put data: {puts[0] if puts else 'None'}")
+        else:
+            print(f"❌ [LOGGING] No puts found in options_chain!")
+    else:
+        print(f"❌ [LOGGING] No options_chain in market_data!")
+        print(f"🔍 [LOGGING] market_data keys: {list(market_data.keys()) if market_data else 'None'}")
+    
     # Get current ticker and market state
     ticker = market_data.get('ticker', 'SPY')  # Default to SPY if not specified
     ticker_data = market_data.get('ticker_recent', {})
-    current_price = ticker_data.get('current_price', 645.0)
-    price_change_pct = ticker_data.get('price_change_pct', 0.0)
+    
+    # Get current price from ticker_data (enhanced market data) first, then fallback
+    enhanced_ticker_data = market_data.get('ticker_data', {})
+    current_price = enhanced_ticker_data.get('current_price', ticker_data.get('current_price', 666.0))
+    price_change_pct = enhanced_ticker_data.get('price_change_pct', ticker_data.get('price_change_pct', 0.0))
     
     # Get broader market context (v4 enhancement)
     global_markets = market_data.get('global_markets', {})
-    spx_data = global_markets.get('^SPX', {'current_price': current_price * 10, 'day_over_day_change': 0.5})
+    spy_giants = market_data.get('spy_giants', {})
+    
+    # Use SPY data from ticker_data for main overview
+    spy_price = market_data.get('ticker_data', {}).get('current_price', current_price)
+    spy_change = market_data.get('ticker_data', {}).get('price_change_pct', price_change_pct)
     
     # Calculate volatility environment from price movement instead of VIX
     price_volatility = abs(price_change_pct)
@@ -858,9 +1018,31 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     dte_display = dte_summary.get('display_name', f'{dte}DTE')
     current_time = market_data.get('timestamp', {}).get('market_time', '10:00:00 EST')
     
-    # Technical analysis data (v4/v5 enhancement)
-    tech_data = market_data.get('technical_analysis', {})
-    rsi_data = market_data.get('rsi_analysis', {'current_rsi': 50.0})
+    # Enhanced technical analysis data from yfinance integration
+    ticker_data = market_data.get('ticker_data', {})
+    # Check both locations for technical indicators (new streamlined structure vs old structure)
+    tech_indicators = market_data.get('technical_indicators', {}) or ticker_data.get('technical_indicators', {})
+    
+    # Extract enhanced technical data with fallbacks
+    rsi_data = {
+        'current_rsi': tech_indicators.get('rsi', 50.0),
+        'trend': 'bullish' if tech_indicators.get('rsi', 50.0) > 60 else 'bearish' if tech_indicators.get('rsi', 50.0) < 40 else 'neutral',
+        'data_source': tech_indicators.get('data_source', 'enhanced_yfinance')
+    }
+    
+    tech_data = {
+        'bb_position': tech_indicators.get('bb_position', 0.5),
+        'bb_upper': tech_indicators.get('bb_upper', 0),
+        'bb_lower': tech_indicators.get('bb_lower', 0),
+        'bb_width': tech_indicators.get('bb_width', 0),
+        'sma_20': tech_indicators.get('sma_20', 0),
+        'sma_50': tech_indicators.get('sma_50', 0),
+        'ema_10': tech_indicators.get('ema_10', 0),
+        'ema_20': tech_indicators.get('ema_20', 0),
+        'volume_ratio': tech_indicators.get('volume_ratio', 1.0),
+        'atr': tech_indicators.get('atr', 0),
+        'data_source': tech_indicators.get('data_source', 'enhanced_yfinance')
+    }
     
     # Recent price action and behavioral data (v5 enhancement)
     recent_data = market_data.get('spy_5min_data', [])
@@ -970,40 +1152,88 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
         ]
     
     # DTE-specific context and timing
+    def calculate_market_time_remaining(dte):
+        """Calculate actual market hours remaining for accurate time display"""
+        try:
+            # Get current ET time
+            et_tz = pytz.timezone('US/Eastern')
+            now_et = datetime.now(et_tz)
+            
+            if dte == 0:
+                # For 0DTE, calculate hours and minutes until 4:00 PM ET
+                market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+                if now_et < market_close:
+                    time_diff = market_close - now_et
+                    hours = int(time_diff.total_seconds() // 3600)
+                    minutes = int((time_diff.total_seconds() % 3600) // 60)
+                    if hours > 0:
+                        return f"{hours}h {minutes}m until expiry"
+                    else:
+                        return f"{minutes}m until expiry"
+                else:
+                    return "Market closed - expired"
+            elif dte == 1:
+                # Next trading day at 4:00 PM
+                tomorrow = now_et + timedelta(days=1)
+                market_close = tomorrow.replace(hour=16, minute=0, second=0, microsecond=0)
+                time_diff = market_close - now_et
+                hours = int(time_diff.total_seconds() // 3600)
+                return f"~{hours}h until next-day expiry"
+            else:
+                return f"{dte} trading days remaining"
+        except Exception as e:
+            logging.warning(f"Error calculating market time remaining: {e}")
+            return f"{dte} day(s) remaining"
+    
+    # Calculate proper time remaining
+    time_remaining = calculate_market_time_remaining(dte)
+    
     if dte == 0:
         time_message = f"Current time: {current_time} (same-day expiration)"
         expiry_context = "Today at 4:00 PM ET"
         time_decay_impact = "Very High (rapid decay)"
         strategy_focus = "Quick directional moves or high-probability neutral plays"
         risk_profile = "Minimize overnight risk, focus on intraday momentum"
-        time_remaining = "6 hours remaining" if "10:00" in current_time else "Market hours remaining"
     elif dte == 1:
         time_message = f"Current time: {current_time} (next-day expiration)"
         expiry_context = "Tomorrow at 4:00 PM ET"
         time_decay_impact = "High (overnight decay + one day)"
         strategy_focus = "Balance time decay with directional opportunity"
         risk_profile = "Moderate risk, account for overnight events"
-        time_remaining = "~30 hours remaining"
     elif dte <= 3:
         time_message = f"Current time: {current_time} ({dte}-day expiration)"
         expiry_context = f"{dte} days until expiration"
         time_decay_impact = "Moderate (multiple days of decay)"
         strategy_focus = "Directional plays with time for position management"
         risk_profile = f"Higher risk tolerance acceptable, {dte}x time buffer"
-        time_remaining = f"{dte} trading days remaining"
     else:
         time_message = f"Current time: {current_time} ({dte}-day expiration)"
         expiry_context = f"{dte} days until expiration" 
         time_decay_impact = "Lower (weekly+ timeframe)"
         strategy_focus = "Longer-term directional plays and wider spreads"
         risk_profile = f"Full range strategies, {dte}-day development time"
-        time_remaining = f"{dte} days for position development"
     
     # Technical setup analysis (v4 enhancement)
     trend_analysis = "Bullish" if price_change_pct > 0.1 else "Bearish" if price_change_pct < -0.1 else "Neutral"
     volatility_env = volatility_level  # Use calculated volatility from price movement
-    support_level = current_price - (3 if dte == 0 else 5 if dte <= 3 else 10)
-    resistance_level = current_price + (3 if dte == 0 else 5 if dte <= 3 else 10)
+    
+    # Calculate dynamic support/resistance based on technical analysis instead of hardcoded ranges
+    # Use broader ranges for longer DTEs and volatility-adjusted levels
+    price_volatility = abs(price_change_pct)
+    volatility_multiplier = max(1.0, price_volatility / 0.5)  # Scale with volatility
+    
+    if dte == 0:
+        # Tight ranges for 0DTE based on intraday movement
+        base_range = 2.0 * volatility_multiplier
+    elif dte <= 3:
+        # Medium ranges for short-term
+        base_range = 4.0 * volatility_multiplier
+    else:
+        # Wider ranges for longer-term
+        base_range = 7.0 * volatility_multiplier
+    
+    support_level = current_price - base_range
+    resistance_level = current_price + base_range
     
     # Enhanced Greeks and Options Chain Analysis
     enhanced_greeks = get_enhanced_greeks_data(ticker=ticker, dte=dte, current_price=current_price)
@@ -1063,39 +1293,47 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
     
     return f"""# {ticker} {dte_display} Trading Analysis - Comprehensive v7 - {datetime.now().strftime('%A, %B %d')}
 
+## Hey Grok! 👋
+
+You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. We provided real-time data (below) and we need to use that for accuracy. Intended output is a JSON package that perfectly matches the examples at the end of our prompt.
+
+We need an actionable trade, don't be afraid to give real trade advice that we can use in the market today.  
+
+---
+
 ## Market Overview
-- **{ticker}:** ${current_price:.2f} ({price_change_pct:+.2f}%)
-- **SPX:** {spx_data['current_price']:,.0f} ({spx_data['day_over_day_change']:+.2f}%)
+- **{ticker}:** ${spy_price:.2f} ({spy_change:+.2f}%)
 - **Volatility:** {volatility_level} (based on {abs(price_change_pct):.1f}% daily move)
+
+### Global Markets Overview
+{"".join([f"- **{symbol}:** ${data.get('current_price', 0):.2f} ({data.get('day_change_percent', 0):+.2f}%)" + chr(10) for symbol, data in global_markets.items()])}
+
+### SPY Giants Overview  
+{"".join([f"- **{symbol}:** ${data.get('current_price', 0):.2f} ({data.get('day_change_percent', 0):+.2f}%)" + chr(10) for symbol, data in spy_giants.items()])}
 
 ## {dte_display} Context
 - **Expiration:** {expiry_context}
 - **Time Decay:** {time_decay_impact}
 - **Time Remaining:** {time_remaining}
-- **Strategy Range:** ${support_level:.0f} - ${resistance_level:.0f}
-
-## Technical Setup
-- **Trend:** {trend_analysis}
-- **Volatility Environment:** {volatility_env}
-- **Support:** ${support_level:.0f}
-- **Resistance:** ${resistance_level:.0f}
 
 ### Enhanced RSI Analysis
 - **Current RSI:** {rsi_data['current_rsi']:.1f} ({"Overbought" if rsi_data['current_rsi'] > 70 else "Oversold" if rsi_data['current_rsi'] < 30 else "Neutral"} territory)
-- **RSI Momentum:** {rsi_data.get('rsi_momentum', 'neutral').replace('_', ' ').title()}
-- **Multi-Timeframe Bias:** {rsi_data.get('multi_timeframe_bias', 'neutral').replace('_', ' ').title()}
-- **RSI Strength:** {rsi_data.get('rsi_strength', 0):.2f} (rate of change)
+- **RSI Trend:** {rsi_data.get('trend', 'neutral').replace('_', ' ').title()}
+- **Data Source:** {rsi_data.get('data_source', 'Enhanced yfinance')}
 
 ### Enhanced Volatility Analysis
-- **Market State:** {tech_data.get('bollinger_bands', {}).get('market_state', 'Normal')}
-- **Bollinger Position:** {tech_data.get('bollinger_bands', {}).get('bb_percent', 0.5):.1%} (0%=Lower Band, 100%=Upper Band)
-- **Volatility Regime:** {"Squeeze" if tech_data.get('bollinger_bands', {}).get('bb_squeeze', False) else "Expansion" if tech_data.get('bollinger_bands', {}).get('volatility_expansion', False) else "Normal"}
-- **Breakout Status:** {"Upper Breakout" if tech_data.get('bollinger_bands', {}).get('upper_breakout', False) else "Lower Breakout" if tech_data.get('bollinger_bands', {}).get('lower_breakout', False) else "Range-bound"}
+- **Bollinger Position:** {tech_data.get('bb_position', 0.5):.1%} (0%=Lower Band, 100%=Upper Band)
+- **Bollinger Width:** {tech_data.get('bb_width', 0):.2f}% ({"Squeeze" if tech_data.get('bb_width', 0) < 10 else "Expansion" if tech_data.get('bb_width', 0) > 25 else "Normal"})
+- **Upper Band:** ${tech_data.get('bb_upper', current_price):.2f}
+- **Lower Band:** ${tech_data.get('bb_lower', current_price):.2f}
+- **ATR (Volatility):** ${tech_data.get('atr', 0):.2f}
 
 ### Enhanced Trend Analysis  
-- **Short-term (EMA):** {tech_data.get('moving_averages', {}).get('ema_trend', 'neutral').replace('_', ' ').title()} (Strength: {tech_data.get('bollinger_bands', {}).get('trend_strength_ema', 0):.2%})
-- **Medium-term (SMA):** {tech_data.get('moving_averages', {}).get('sma_trend', 'neutral').replace('_', ' ').title()} (Strength: {tech_data.get('bollinger_bands', {}).get('trend_strength_sma', 0):.2%})
-- **Volume Confirmation:** {"High" if tech_data.get('bollinger_bands', {}).get('volume_ratio', 1) > 1.5 else "Normal" if tech_data.get('bollinger_bands', {}).get('volume_ratio', 1) > 0.8 else "Low"} Volume
+- **SMA 20:** ${tech_data.get('sma_20', current_price):.2f} ({"Above" if current_price > tech_data.get('sma_20', current_price) else "Below" if current_price < tech_data.get('sma_20', current_price) else "At"} current price)
+- **SMA 50:** ${tech_data.get('sma_50', current_price):.2f} ({"Bullish" if tech_data.get('sma_20', current_price) > tech_data.get('sma_50', current_price) else "Bearish" if tech_data.get('sma_20', current_price) < tech_data.get('sma_50', current_price) else "Neutral"} crossover)
+- **EMA 10:** ${tech_data.get('ema_10', current_price):.2f}
+- **EMA 20:** ${tech_data.get('ema_20', current_price):.2f}
+- **Volume Ratio:** {tech_data.get('volume_ratio', 1.0):.1f}x ({"High" if tech_data.get('volume_ratio', 1) > 1.5 else "Normal" if tech_data.get('volume_ratio', 1) > 0.8 else "Low"} Volume)
 
 ## {ticker} Recent Price Action (Behavioral Analysis)
 {chr(10).join(price_action_lines)}
@@ -1112,7 +1350,7 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 ## Comprehensive Options Chain Analysis ({dte_display})
 **Market Summary:**
 - Total Options Available: {market_data.get('options_chain', {}).get('total_options', 0)} contracts
-- Strike Range: ${current_price-15:.0f} - ${current_price+15:.0f}
+- Strike Range: ${current_price-25:.0f} - ${current_price+25:.0f} (expanded ±10 strikes)
 - Symbols Available: {market_data.get('options_chain', {}).get('total_symbols_available', 0)} total
 - Symbols After Filtering: {market_data.get('options_chain', {}).get('symbols_filtered', 0)} for {dte_display}
 - Current Price: ${market_data.get('options_chain', {}).get('current_price', current_price):.2f}
@@ -1133,10 +1371,10 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 **Detailed Options Data ({dte_display}):**
 
 **CALL OPTIONS:**
-{format_compact_options_table(market_data.get('options_chain', {}).get('calls', []), 'calls', current_price)}
+{format_compact_options_table(market_data.get('options_chain', {}).get('calls', []), 'calls', current_price, enhanced_greeks)}
 
 **PUT OPTIONS:**
-{format_compact_options_table(market_data.get('options_chain', {}).get('puts', []), 'puts', current_price)}
+{format_compact_options_table(market_data.get('options_chain', {}).get('puts', []), 'puts', current_price, enhanced_greeks)}
 
 ## Strategy Recommendation Required
 
@@ -1144,18 +1382,19 @@ Choose the OPTIMAL {dte_display} strategy based on:
 1. Current price action and momentum ({momentum})
 2. Volatility environment ({volatility_env}) based on {abs(price_change_pct):.1f}% daily movement
 3. Time remaining until expiration ({time_remaining})
-4. Support/resistance levels (${support_level:.0f}/${resistance_level:.0f})
+4. Expected trading range (${support_level:.2f}/${resistance_level:.2f}) based on volatility
 5. Options flow and volume patterns
 6. Recent behavioral patterns ({volume_pattern} volume, {momentum} momentum)
 
-**Strategies:**
+**Response Format Required:**
+
+Provide brief market analysis (2-3 sentences) followed immediately by a complete JSON response using one of the strategy templates below.
+
+**Strategy Options:**
 - **BULL_PUT_SPREAD:** Bullish/neutral bias, sell put spread below support (${support_level:.0f})
 - **BEAR_CALL_SPREAD:** Bearish/neutral bias, sell call spread above resistance (${resistance_level:.0f})
 
-## Response Format Required
-Provide your analysis (2-3 sentences considering all factors above) followed by a JSON block with your specific {dte_display} trade recommendation.
-
-**JSON Structure (use actual strikes and values based on current market data):**
+**JSON Response Format:**
 
 **For BULL_PUT_SPREAD:**
 ```json
@@ -1173,7 +1412,7 @@ Provide your analysis (2-3 sentences considering all factors above) followed by 
     "short_put_strike": [HIGHER_STRIKE_NUMBER],
     "long_put_strike": [LOWER_STRIKE_NUMBER],
     "credit_received": [CREDIT_AMOUNT],
-    "expiration": "[DATE_FORMAT]",
+    "expiration": "2025-09-23",
     "max_profit": [CREDIT_TIMES_100],
     "max_loss": [SPREAD_WIDTH_MINUS_CREDIT_TIMES_100]
   }},
@@ -1210,7 +1449,7 @@ Provide your analysis (2-3 sentences considering all factors above) followed by 
     "short_call_strike": [LOWER_STRIKE_NUMBER],
     "long_call_strike": [HIGHER_STRIKE_NUMBER],
     "credit_received": [CREDIT_AMOUNT],
-    "expiration": "[DATE_FORMAT]",
+    "expiration": "2025-09-23",
     "max_profit": [CREDIT_TIMES_100],
     "max_loss": [SPREAD_WIDTH_MINUS_CREDIT_TIMES_100]
   }},
@@ -2177,8 +2416,8 @@ class AutomatedTrader:
                 self.logger.warning("No options chain data found")
                 return 0
             
-            # Import the parser from paca module
-            from paca import parse_option_symbol
+            # Import the parser from tt module (TastyTrade)
+            from tt import parse_option_symbol
             from datetime import datetime, date
             
             # Extract expiration date from first option symbol
@@ -2481,7 +2720,7 @@ class AutomatedTrader:
         """
         try:
             # Get current options chain data with quotes for specified DTE
-            from paca import get_spy_options_chain
+            from tt import get_spy_options_chain
             from trader import get_todays_expiry
             from dte_manager import DTEManager
             
