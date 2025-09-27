@@ -275,6 +275,7 @@ def get_comprehensive_market_data(ticker=None, dte=None, include_full_options_ch
             'ticker': ticker,
             'global_markets': streamlined_data['global_markets'],
             'spy_giants': streamlined_data.get('spy_giants', {}),
+            'ticker_data': streamlined_data['ticker_data'],  # Keep the original structure
             'market_data': {
                 'current_price': streamlined_data['ticker_data'].get('current_price', 0.0),
                 'price_change': streamlined_data['ticker_data'].get('price_change', 0.0),
@@ -997,16 +998,29 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     
     # Get current price from ticker_data (enhanced market data) first, then fallback
     enhanced_ticker_data = market_data.get('ticker_data', {})
-    current_price = enhanced_ticker_data.get('current_price', ticker_data.get('current_price', 666.0))
-    price_change_pct = enhanced_ticker_data.get('price_change_pct', ticker_data.get('price_change_pct', 0.0))
+    current_price = enhanced_ticker_data.get('current_price') or ticker_data.get('current_price')
+    price_change_pct = enhanced_ticker_data.get('price_change_pct') or ticker_data.get('price_change_pct') or 0.0
+    
+    # Debug pricing data sources
+    print(f"🔍 [PRICE DEBUG] Pricing data sources:")
+    print(f"   enhanced_ticker_data.current_price: {enhanced_ticker_data.get('current_price', 'None')}")
+    print(f"   ticker_data.current_price: {ticker_data.get('current_price', 'None')}")
+    print(f"   Final current_price: ${current_price:.2f}" if current_price else "   Final current_price: None")
+    
+    # Validate we have actual price data - if not, we can't generate a proper prompt
+    if not current_price:
+        print(f"❌ CRITICAL: No current price data found in market_data")
+        print(f"   enhanced_ticker_data keys: {list(enhanced_ticker_data.keys()) if enhanced_ticker_data else 'None'}")
+        print(f"   ticker_data keys: {list(ticker_data.keys()) if ticker_data else 'None'}")
+        return "ERROR: Missing current price data - cannot generate analysis prompt"
     
     # Get broader market context (v4 enhancement)
     global_markets = market_data.get('global_markets', {})
     spy_giants = market_data.get('spy_giants', {})
     
-    # Use SPY data from ticker_data for main overview
-    spy_price = market_data.get('ticker_data', {}).get('current_price', current_price)
-    spy_change = market_data.get('ticker_data', {}).get('price_change_pct', price_change_pct)
+    # Use the same validated current price for all calculations
+    spy_price = current_price
+    spy_change = price_change_pct
     
     # Calculate volatility environment from price movement instead of VIX
     price_volatility = abs(price_change_pct)
@@ -3084,6 +3098,23 @@ def run_dte_aware_analysis(dte: Optional[int] = None, ticker: Optional[str] = No
         has_strategy = any(strategy in analysis_result.upper() for strategy in ['BULL_PUT_SPREAD', 'BEAR_CALL_SPREAD', 'IRON_CONDOR'])
         print(f"📈 Strategy detected: {'✅' if has_strategy else '❌'}")
         
+        # Parse and store Grok response for trading
+        try:
+            from trader_integration import process_grok_response
+            # Process the Grok response and store it in the database
+            trade_processing_result = process_grok_response(
+                grok_response=analysis_result,
+                ticker=ticker,
+                dte=dte
+            )
+            if trade_processing_result['success']:
+                print(f"✅ Successfully parsed and stored trade recommendation")
+            else:
+                print(f"⚠️ Trade parsing issue: {trade_processing_result.get('error', 'Unknown error')}")
+        except Exception as e:
+            print(f"⚠️ Failed to process trade recommendation: {e}")
+            trade_processing_result = {'success': False, 'error': str(e)}
+            
         # Compile results in format expected by automated_trader.py
         results = {
             'success': True,
@@ -3095,7 +3126,8 @@ def run_dte_aware_analysis(dte: Optional[int] = None, ticker: Optional[str] = No
             'ai_analysis': analysis_result,
             'grok_response': analysis_result,  # Key field that automated_trader.py expects
             'strategy_detected': has_strategy,
-            'prompt_version': 'v7_comprehensive_dte_aware'
+            'prompt_version': 'v7_comprehensive_dte_aware',
+            'trade_processing': trade_processing_result
         }
         
         if save_results:

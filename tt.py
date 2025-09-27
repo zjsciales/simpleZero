@@ -1403,17 +1403,21 @@ def get_options_chain(ticker=None, limit=50, feed='indicative', dte_only=True, d
                 print(f"📅 Today's date - UTC: {today_utc}")
                 print(f"📅 Today's date - ET: {today_et}")
                 
-                # Check both UTC and ET dates
+                # Check both UTC and ET dates (only log once per session to avoid spam)
                 if today_utc in expiration_dates or today_et in expiration_dates:
                     found_date = today_utc if today_utc in expiration_dates else today_et
-                    print(f"✅ Found options expiring TODAY ({found_date})")
+                    if not hasattr(get_options_chain, '_logged_today_check'):
+                        print(f"✅ Found options expiring TODAY ({found_date})")
+                        get_options_chain._logged_today_check = True
                 else:
-                    print(f"❌ NO options expiring today (checked {today_utc} and {today_et})")
-                    print(f"📅 Next expiration: {expiration_dates[0] if expiration_dates else 'None'}")
-                    
-                    # Check what day of week today is
-                    weekday = et_now.strftime('%A')
-                    print(f"📆 Today is {weekday} - SPY typically expires on Fridays")
+                    if not hasattr(get_options_chain, '_logged_today_check'):
+                        print(f"❌ NO options expiring today (checked {today_utc} and {today_et})")
+                        print(f"📅 Next expiration: {expiration_dates[0] if expiration_dates else 'None'}")
+                        
+                        # Check what day of week today is
+                        weekday = et_now.strftime('%A')
+                        print(f"📆 Today is {weekday} - SPY typically expires on Fridays")
+                        get_options_chain._logged_today_check = True
                 
                 # Process and format the options data
                 formatted_options = []

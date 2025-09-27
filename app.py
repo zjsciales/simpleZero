@@ -599,45 +599,19 @@ def grok_analysis():
         # Create GrokAnalyzer
         analyzer = GrokAnalyzer()
         
-        # Generate comprehensive market analysis prompt
-        prompt = f"""Analyze the current market conditions for {ticker} with {dte}DTE focus:
-
-Market Analysis Request:
-- Ticker: {ticker}
-- Days to Expiration: {dte}
-- Analysis Type: {"Intraday scalping" if dte == 0 else f"{dte}-day swing trading"}
-- Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S EST')}
-
-Please provide a comprehensive analysis including:
-
-1. **Current Market Assessment**
-   - Overall market sentiment and trend direction
-   - Key technical levels (support/resistance)
-   - Current price action and momentum indicators
-
-2. **Technical Analysis**
-   - RSI conditions and overbought/oversold levels
-   - Moving average positioning and trends
-   - Bollinger Band analysis and volatility assessment
-
-3. **Options Trading Opportunities**
-   - Optimal strike price recommendations for {dte}DTE
-   - Credit spread opportunities (put/call spreads)
-   - Risk/reward ratios for recommended trades
-
-4. **Risk Management**
-   - Position sizing recommendations
-   - Stop-loss levels and profit targets
-   - Market conditions to avoid trading
-
-5. **Actionable Insights**
-   - Specific entry and exit strategies
-   - Time-of-day considerations for {dte}DTE trading
-   - Market catalysts to watch
-
-Focus on actionable, specific recommendations for {ticker} {dte}DTE trading with current market conditions."""
-
-        print(f"📤 Sending market analysis prompt to Grok...")
+        # Get comprehensive market data
+        print(f"📊 Gathering comprehensive market data for {ticker} {dte}DTE...")
+        market_data = get_comprehensive_market_data(ticker=ticker, dte=dte, include_full_options_chain=True)
+        
+        if not market_data:
+            return jsonify({'error': 'Failed to gather market data'}), 500
+        
+        # Generate comprehensive market analysis prompt using actual market data
+        from grok import format_market_analysis_prompt_v7_comprehensive
+        prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
+        
+        print(f"📤 Sending comprehensive market analysis prompt to Grok...")
+        print(f"� Prompt length: {len(prompt):,} characters")
         grok_response = analyzer.send_to_grok(prompt)
         
         if grok_response:
