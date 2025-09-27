@@ -616,11 +616,26 @@ def grok_analysis():
         
         if grok_response:
             print(f"✅ Grok analysis completed")
+            
+            # Process and store the Grok response
+            from trader_integration import process_grok_response
+            user_session_id = session.get('session_id') or session.get('user_session_id')
+            
+            processing_result = process_grok_response(
+                grok_response=grok_response,
+                ticker=ticker,
+                dte=dte,
+                session_id=user_session_id
+            )
+            
             return jsonify({
                 'success': True,
                 'analysis': grok_response,
                 'ticker': ticker,
-                'dte': dte
+                'dte': dte,
+                'processing_result': processing_result,
+                'trade_parsed': processing_result.get('success', False),
+                'parsed_trade': processing_result.get('parsed_trade') if processing_result.get('success') else None
             })
         else:
             print(f"❌ Grok analysis failed")
@@ -628,6 +643,21 @@ def grok_analysis():
             
     except Exception as e:
         print(f"💥 Exception in Grok analysis: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
+@app.route('/api/latest-trade-recommendation')
+def get_latest_trade_recommendation():
+    """API endpoint to get the latest trade recommendation"""
+    try:
+        from trader_integration import get_latest_trade_recommendation
+        user_session_id = session.get('session_id') or session.get('user_session_id')
+        
+        result = get_latest_trade_recommendation(session_id=user_session_id)
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"💥 Exception getting latest trade recommendation: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
 @app.route('/data-management')
