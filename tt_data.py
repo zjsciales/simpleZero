@@ -363,14 +363,30 @@ class TastyTradeMarketData:
                 # Handle the data format (nested in items array)
                 if 'data' in data and 'items' in data['data'] and data['data']['items']:
                     quote = data['data']['items'][0]  # Get first item
+                    
+                    # Extract price data
+                    bid = _safe_float(quote.get('bid'))
+                    ask = _safe_float(quote.get('ask'))
+                    last_price = _safe_float(quote.get('last-price'))
+                    # Use last price if available, otherwise use mid-price
+                    price = last_price if last_price > 0 else (bid + ask) / 2 if (bid > 0 and ask > 0) else None
+                    
+                    # Extract previous close for day change calculations
+                    prev_close = _safe_float(quote.get('prev-close'))
+                    
+                    # Get volume if available
+                    volume = _safe_int(quote.get('volume'))
+                    
                     result[symbol] = {
                         'symbol': symbol,
-                        'bid': _safe_float(quote.get('bid')),
-                        'ask': _safe_float(quote.get('ask')),
+                        'bid': bid,
+                        'ask': ask,
                         'bid_size': _safe_int(quote.get('bid-size')),
                         'ask_size': _safe_int(quote.get('ask-size')),
                         'timestamp': quote.get('updated-at'),
-                        'price': _safe_float(quote.get('last-price')) or (_safe_float(quote.get('bid')) + _safe_float(quote.get('ask'))) / 2
+                        'price': price,
+                        'prev_close': prev_close,
+                        'volume': volume
                     }
                     
             except Exception as e:
@@ -486,22 +502,28 @@ def get_market_overview_tastytrade(symbols: List[str] = None, force_refresh: boo
         result = {}
         for symbol, quote in quotes.items():
             if quote:
-                # Note: Historical data not available in TastyTrade sandbox
-                # Using fallback values for day change calculations
-                day_change = 0.0
-                intraday_change = 0.0
+                # Check for previous close to calculate day change
+                current_price = quote['price']
+                prev_close = quote.get('prev_close')
+                
+                # Calculate day change if previous close is available
+                if prev_close and current_price:
+                    day_change = current_price - prev_close
+                    day_change_percent = (day_change / prev_close) * 100 if prev_close else None
+                else:
+                    day_change = None
+                    day_change_percent = None
                 
                 result[symbol] = {
-                    'current_price': quote['price'],
+                    'current_price': current_price,
                     'bid': quote['bid'],
                     'ask': quote['ask'],
                     'bid_size': quote['bid_size'],
                     'ask_size': quote['ask_size'],
                     'day_change': day_change,
-                    'day_change_percent': day_change,
-                    'intraday_change': intraday_change,
-                    'intraday_change_percent': intraday_change,
-                    'volume': 0,  # Not available in quotes
+                    'day_change_percent': day_change_percent,
+                    'prev_close': prev_close,  # Add previous close to data
+                    'volume': quote.get('volume'),  # Try to get volume if available
                     'timestamp': quote['timestamp'],
                     'source': 'tastytrade'
                 }
@@ -598,7 +620,7 @@ def get_current_price(ticker: str = None) -> Optional[float]:
 
 def get_market_overview(symbols: List[str] = None, force_refresh: bool = False) -> Dict[str, Dict]:
     """TastyTrade-only market overview (replaces hybrid_data function)"""
-    return get_market_overview_alpaca(symbols, force_refresh)
+    return get_market_overview_tastytrade(symbols, force_refresh)
 
 def get_ticker_recent_data(ticker: str = None, period: str = "1d", 
                           interval: str = "1m", last_minutes: int = 10) -> Optional[Dict]:

@@ -1938,41 +1938,85 @@ def filter_options_by_criteria(symbols: List[str], current_price: float, dte: in
         print("❌ No symbols provided to filter!")
         return {'calls': [], 'puts': [], 'target_date': '', 'strike_range': {'min': 0, 'max': 0}}
     
-    # Get the correct SPY expiration date for the requested DTE
-    target_str = get_spy_expiration_date(dte)
-    
-    # Calculate strike range (FIXED: use ± not *)
+    # Calculate strike range
     strike_range = current_price * strike_range_pct
     min_strike = current_price - strike_range
     max_strike = current_price + strike_range
     
     print(f"🎯 Strike range: ${min_strike:.2f} - ${max_strike:.2f}")
     
+    # Extract all available expiration dates from the option chain
+    today = datetime.now()
+    expiration_dates = {}  # Format: {'yymmdd': datetime}
+    
+    # First pass: extract all expiration dates from symbols
+    for symbol in symbols:
+        parsed = parse_option_symbol(symbol)
+        if not parsed:
+            continue
+        
+        # Convert YYMMDD to datetime for DTE calculation
+        try:
+            exp_year = 2000 + int(parsed['expiration'][:2])
+            exp_month = int(parsed['expiration'][2:4])
+            exp_day = int(parsed['expiration'][4:6])
+            exp_date = datetime(exp_year, exp_month, exp_day)
+            
+            # Store with YYMMDD string as key
+            expiration_dates[parsed['expiration']] = exp_date
+        except (ValueError, IndexError):
+            continue
+    
+    # Calculate DTE for each available expiration
+    dte_map = {}  # Format: {'yymmdd': actual_dte}
+    for exp_str, exp_date in expiration_dates.items():
+        dte_value = (exp_date - today).days
+        dte_map[exp_str] = dte_value
+    
+    # Sort by DTE to find the closest match to requested DTE
+    sorted_expirations = sorted(dte_map.items(), key=lambda x: abs(x[1] - dte))
+    
+    if not sorted_expirations:
+        print("❌ No valid expiration dates found in option chain!")
+        return {'calls': [], 'puts': [], 'target_date': '', 'strike_range': {'min': 0, 'max': 0}}
+    
+    # Select the closest expiration date to requested DTE
+    target_str = sorted_expirations[0][0]
+    actual_dte = sorted_expirations[0][1]
+    
+    print(f"🎯 Requested {dte}DTE, found closest expiration: {target_str} (actual {actual_dte}DTE)")
+    
+    # For 0DTE, take only same-day expiration
+    if dte == 0 and actual_dte > 0:
+        zero_dte_options = [item for item in sorted_expirations if item[1] == 0]
+        if zero_dte_options:
+            target_str = zero_dte_options[0][0]
+            actual_dte = 0
+            print(f"🎯 Adjusted to 0DTE expiration: {target_str}")
+    
+    # Show available DTEs for reference
+    all_dtes = sorted([d for d in dte_map.values()])
+    print(f"📅 Available DTEs in option chain: {all_dtes[:10]}")
+    
+    # Filter by the selected expiration date and strike range
     calls = []
     puts = []
-    expiration_dates_seen = set()
     strikes_seen = set()
     
     for symbol in symbols:
         parsed = parse_option_symbol(symbol)
         if not parsed:
             continue
-            
-        # Track what we're seeing for debugging
-        expiration_dates_seen.add(parsed['expiration'])
-        strikes_seen.add(parsed['strike'])
         
-        # Check expiration date
+        # Check if expiration date matches our target
         if parsed['expiration'] != target_str:
-            # Debug: show what we're comparing
-            if len(calls) == 0 and len(puts) == 0:  # Only log for first few mismatches
-                print(f"🔍 Date mismatch: found '{parsed['expiration']}' vs target '{target_str}' for symbol {symbol}")
             continue
-            
+        
         # Check strike range
+        strikes_seen.add(parsed['strike'])
         if not (min_strike <= parsed['strike'] <= max_strike):
             continue
-            
+        
         # Add to appropriate list
         if parsed['option_type'] == 'call':
             calls.append(symbol)
@@ -1980,7 +2024,6 @@ def filter_options_by_criteria(symbols: List[str], current_price: float, dte: in
             puts.append(symbol)
     
     # Debug information
-    print(f"🔍 Expiration dates found: {sorted(list(expiration_dates_seen))[:10]}")
     print(f"🔍 Strike prices found: {sorted(list(strikes_seen))[:10]}")
     print(f"✅ Filtered to {len(calls)} calls and {len(puts)} puts")
     

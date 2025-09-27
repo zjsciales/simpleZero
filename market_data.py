@@ -23,6 +23,17 @@ try:
 except ImportError:
     YFINANCE_AVAILABLE = False
     print("⚠️ yfinance not available - technical analysis will use fallback values")
+
+# Make sure yfinance is actually usable by trying a simple operation
+if YFINANCE_AVAILABLE:
+    try:
+        # Simple test to verify yfinance is working
+        test = yf.Ticker("SPY")
+        test.info
+        print("✅ yfinance tested and working")
+    except Exception as e:
+        print(f"⚠️ yfinance imported but not working: {e}")
+        YFINANCE_AVAILABLE = False
 from tt_data import get_market_overview, get_ticker_recent_data
 from tt import get_options_chain_data, get_authenticated_headers
 
@@ -47,7 +58,16 @@ def get_day_changes_yfinance(symbols: List[str]) -> Dict[str, Dict]:
     """
     if not YFINANCE_AVAILABLE:
         print(f"❌ yfinance not available for day changes")
-        return {}
+        # Return placeholder data for sandbox mode
+        return {
+            symbol: {
+                'day_change': 0.0,
+                'day_change_percent': 0.0, 
+                'current_price': 0.0,
+                'previous_close': 0.0
+            } 
+            for symbol in symbols
+        }
     
     current_time = datetime.now()
     results = {}
@@ -424,7 +444,9 @@ def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
 
 def get_global_market_overview() -> Dict[str, Dict]:
     """
-    Get current prices of global market indicators with enhanced day-over-day data from yfinance
+    Get current prices of global market indicators with day-over-day data
+    Uses TastyTrade as primary source, yfinance as fallback
+    Returns blank fields instead of fallback values if both sources fail
     
     Returns:
     Dict with symbols as keys and market data as values
@@ -437,39 +459,56 @@ def get_global_market_overview() -> Dict[str, Dict]:
         # Get basic market data from TastyTrade
         market_data = get_market_overview(symbols=symbols, force_refresh=True)
         
-        # Get enhanced day changes from yfinance
-        day_changes = get_day_changes_yfinance(symbols)
+        # Get yfinance data as backup only if TastyTrade data is incomplete
+        day_changes = {}
+        if YFINANCE_AVAILABLE:
+            day_changes = get_day_changes_yfinance(symbols)
         
         # Format for consistency with enhanced day change data
         formatted_data = {}
-        for symbol, data in market_data.items():
-            if data:
-                # Use yfinance day change data if available, otherwise TastyTrade defaults
-                yf_data = day_changes.get(symbol, {})
-                
-                formatted_data[symbol] = {
-                    'symbol': symbol,
-                    'current_price': yf_data.get('current_price', data.get('current_price', 0.0)),
-                    'bid': data.get('bid', 0.0),
-                    'ask': data.get('ask', 0.0),
-                    'day_change': yf_data.get('day_change', data.get('day_change', 0.0)),
-                    'day_change_percent': yf_data.get('day_change_percent', data.get('day_change_percent', 0.0)),
-                    'volume': data.get('volume', 0),
-                    'timestamp': data.get('timestamp', datetime.now().isoformat()),
-                    'source': 'tastytrade_with_yfinance_daychange'
-                }
         
-        print(f"✅ Got global market data for {len(formatted_data)} symbols with enhanced day changes")
+        # Process each symbol, preferring TastyTrade data when available
+        for symbol in symbols:
+            tt_data = market_data.get(symbol, {})
+            yf_data = day_changes.get(symbol, {})
+            
+            # Create entry using primary TastyTrade data, with yfinance as backup
+            # Use None (not 0.0) for missing data to display as blank
+            formatted_data[symbol] = {
+                'symbol': symbol,
+                # Current price: TastyTrade → yfinance → None
+                'current_price': tt_data.get('current_price') or yf_data.get('current_price'),
+                # Bid/Ask: TastyTrade only → None
+                'bid': tt_data.get('bid'),
+                'ask': tt_data.get('ask'),
+                # Day change: TastyTrade → yfinance → None
+                'day_change': tt_data.get('day_change') or yf_data.get('day_change'),
+                'day_change_percent': tt_data.get('day_change_percent') or yf_data.get('day_change_percent'),
+                # Volume: TastyTrade → yfinance → None
+                'volume': tt_data.get('volume'),
+                # Timestamp: TastyTrade → current time
+                'timestamp': tt_data.get('timestamp') or datetime.now().isoformat(),
+                # Source tracking
+                'source': 'tastytrade' if tt_data else ('yfinance' if yf_data else 'none')
+            }
+            
+            # Remove None values to ensure they're shown as blank
+            formatted_data[symbol] = {k: v for k, v in formatted_data[symbol].items() if k == 'symbol' or v is not None}
+        
+        print(f"✅ Got global market data for {len(formatted_data)} symbols")
         return formatted_data
         
     except Exception as e:
         print(f"❌ Error fetching global market overview: {e}")
-        return {}
+        # Return minimal data with just symbols - no fallback values
+        return {symbol: {'symbol': symbol} for symbol in symbols}
 
 
 def get_spy_giants_overview() -> Dict[str, Dict]:
     """
-    Get current prices of SPY's largest holdings with enhanced day-over-day data from yfinance
+    Get current prices of SPY's largest holdings with day-over-day data
+    Uses TastyTrade as primary source, yfinance as fallback
+    Returns blank fields instead of fallback values if both sources fail
     
     Returns:
     Dict with symbols as keys and market data as values  
@@ -482,34 +521,49 @@ def get_spy_giants_overview() -> Dict[str, Dict]:
         # Get basic market data from TastyTrade
         market_data = get_market_overview(symbols=spy_giants, force_refresh=True)
         
-        # Get enhanced day changes from yfinance
-        day_changes = get_day_changes_yfinance(spy_giants)
+        # Get yfinance data as backup only if needed
+        day_changes = {}
+        if YFINANCE_AVAILABLE:
+            day_changes = get_day_changes_yfinance(spy_giants)
         
         # Format for consistency with enhanced day change data
         formatted_data = {}
-        for symbol, data in market_data.items():
-            if data:
-                # Use yfinance day change data if available, otherwise TastyTrade defaults
-                yf_data = day_changes.get(symbol, {})
-                
-                formatted_data[symbol] = {
-                    'symbol': symbol,
-                    'current_price': yf_data.get('current_price', data.get('current_price', 0.0)),
-                    'bid': data.get('bid', 0.0),
-                    'ask': data.get('ask', 0.0),
-                    'day_change': yf_data.get('day_change', data.get('day_change', 0.0)),
-                    'day_change_percent': yf_data.get('day_change_percent', data.get('day_change_percent', 0.0)),
-                    'volume': data.get('volume', 0),
-                    'timestamp': data.get('timestamp', datetime.now().isoformat()),
-                    'source': 'tastytrade_with_yfinance_daychange'
-                }
         
-        print(f"✅ Got SPY giants data for {len(formatted_data)} symbols with enhanced day changes")
+        # Process each symbol, preferring TastyTrade data when available
+        for symbol in spy_giants:
+            tt_data = market_data.get(symbol, {})
+            yf_data = day_changes.get(symbol, {})
+            
+            # Create entry using primary TastyTrade data, with yfinance as backup
+            # Use None (not 0.0) for missing data to display as blank
+            formatted_data[symbol] = {
+                'symbol': symbol,
+                # Current price: TastyTrade → yfinance → None
+                'current_price': tt_data.get('current_price') or yf_data.get('current_price'),
+                # Bid/Ask: TastyTrade only → None
+                'bid': tt_data.get('bid'),
+                'ask': tt_data.get('ask'),
+                # Day change: TastyTrade → yfinance → None
+                'day_change': tt_data.get('day_change') or yf_data.get('day_change'),
+                'day_change_percent': tt_data.get('day_change_percent') or yf_data.get('day_change_percent'),
+                # Volume: TastyTrade → yfinance → None
+                'volume': tt_data.get('volume'),
+                # Timestamp: TastyTrade → current time
+                'timestamp': tt_data.get('timestamp') or datetime.now().isoformat(),
+                # Source tracking
+                'source': 'tastytrade' if tt_data else ('yfinance' if yf_data else 'none')
+            }
+            
+            # Remove None values to ensure they're shown as blank
+            formatted_data[symbol] = {k: v for k, v in formatted_data[symbol].items() if k == 'symbol' or v is not None}
+        
+        print(f"✅ Got SPY giants data for {len(formatted_data)} symbols")
         return formatted_data
         
     except Exception as e:
         print(f"❌ Error fetching SPY giants overview: {e}")
-        return {}
+        # Return minimal data with just symbols - no fallback values
+        return {symbol: {'symbol': symbol} for symbol in spy_giants}
 
 
 def get_ticker_30min_data(ticker: str) -> Dict[str, Any]:

@@ -1298,7 +1298,7 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. Your goal is to create stable income, without incurring excessive risk (premium:max loss ration should be 1:4 or better). We provided real-time data (below) and we need to use that for accuracy. Intended output is a JSON package that perfectly matches the examples at the end of our prompt.
 
 We need an actionable trade, don't be afraid to give real trade advice that we can use in the market today.  
- d
+
 ---
 
 ## Market Overview
@@ -1306,10 +1306,10 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 - **Volatility:** {volatility_level} (based on {abs(price_change_pct):.1f}% daily move)
 
 ### Global Markets Overview
-{"".join([f"- **{symbol}:** ${data.get('current_price', 0):.2f} ({data.get('day_change_percent', 0):+.2f}%)" + chr(10) for symbol, data in global_markets.items()])}
+{"".join([f"- **{symbol}:** {'$' + f'{data.get('current_price'):.2f}' if data.get('current_price') is not None else 'N/A'} ({'(' + f'{data.get('day_change_percent'):+.2f}%' + ')' if data.get('day_change_percent') is not None else 'N/A'})" + chr(10) for symbol, data in global_markets.items()])}
 
 ### SPY Giants Overview  
-{"".join([f"- **{symbol}:** ${data.get('current_price', 0):.2f} ({data.get('day_change_percent', 0):+.2f}%)" + chr(10) for symbol, data in spy_giants.items()])}
+{"".join([f"- **{symbol}:** {'$' + f'{data.get('current_price'):.2f}' if data.get('current_price') is not None else 'N/A'} ({'(' + f'{data.get('day_change_percent'):+.2f}%' + ')' if data.get('day_change_percent') is not None else 'N/A'})" + chr(10) for symbol, data in spy_giants.items()])}
 
 ## {dte_display} Context
 - **Expiration:** {expiry_context}
