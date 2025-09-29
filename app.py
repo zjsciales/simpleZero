@@ -772,20 +772,18 @@ def trade_page():
             print("❌ No parsed trade data found anywhere")
         
         # Determine environment and authentication status
-        environment = "PRODUCTION" if config.IS_PRODUCTION else "SANDBOX"
+        environment = config.ENVIRONMENT_NAME
         
-        # Check authentication status for both environments
-        prod_authenticated = bool(session.get('access_token'))  # Main token from production OAuth
-        sandbox_authenticated = bool(session.get('sandbox_access_token'))  # Sandbox token
+        # Check authentication status for current environment
+        authenticated = bool(session.get('access_token'))  # Unified token for current environment
         
-        print(f"🎯 Trade page: environment={environment}, prod_auth={prod_authenticated}, sandbox_auth={sandbox_authenticated}")
+        print(f"🎯 Trade page: environment={environment}, authenticated={authenticated}")
         print(f"🎯 Trade page: parsed_trade available={parsed_trade is not None}")
         
         return render_template(
             'trade.html',
             environment=environment,
-            prod_authenticated=prod_authenticated,
-            sandbox_authenticated=sandbox_authenticated,
+            authenticated=authenticated,
             parsed_trade=parsed_trade
         )
         
@@ -863,12 +861,12 @@ def auth_status():
 def execute_trade():
     """Execute a trade (placeholder for now)"""
     try:
-        # Check sandbox authentication
-        sandbox_token = session.get('sandbox_access_token')
-        if not sandbox_token:
+        # Check authentication for current environment
+        access_token = session.get('access_token')
+        if not access_token:
             return jsonify({
                 'success': False,
-                'error': 'Sandbox authentication required for trading'
+                'error': f'{config.ENVIRONMENT_NAME} authentication required for trading'
             }), 401
         
         # Get the latest parsed trade
@@ -890,7 +888,7 @@ def execute_trade():
             'result': {
                 'status': 'Submitted',
                 'strategy': parsed_trade.get('strategy', 'Unknown'),
-                'message': 'Trade submitted successfully to sandbox environment'
+                'message': f'Trade submitted successfully to {config.ENVIRONMENT_NAME} environment'
             }
         })
         
