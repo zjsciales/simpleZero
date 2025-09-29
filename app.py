@@ -82,29 +82,14 @@ def login():
     print(f"🔗 Redirecting to: {auth_url}")
     return redirect(auth_url)
 
-@app.route('/zscialespersonal')  # Legacy dev callback - keep for backward compatibility
-@app.route('/tt')  # Legacy production callback - keep for backward compatibility
-@app.route('/zscialesProd')  # New dev callback for TastyTrade Prod integration
-@app.route('/ttProd')  # New production callback for TastyTrade Prod integration
+@app.route('/oauth/callback')
 def oauth_callback():
-    """Handle OAuth2 callback from TastyTrade (supports multiple endpoints)"""
+    """Handle OAuth2 callback from TastyTrade for current environment"""
     code = request.args.get('code')
     state = request.args.get('state')
     error = request.args.get('error')
     
-    # Determine which callback URI was used
-    callback_uri = request.path
-    environment_info = ""
-    if callback_uri == "/zscialesProd":
-        environment_info = " (Development → TastyTrade Prod)"
-    elif callback_uri == "/ttProd":
-        environment_info = " (Production → TastyTrade Prod)"
-    elif callback_uri == "/zscialespersonal":
-        environment_info = " (Legacy Dev Callback)"
-    elif callback_uri == "/tt":
-        environment_info = " (Legacy Prod Callback)"
-    
-    print(f"🔐 OAuth callback received on {callback_uri}{environment_info}")
+    print(f"🔐 OAuth callback received for {config.ENVIRONMENT_NAME} environment")
     print(f"🔐 Code: {code[:20]}..." if code else "No code")
     print(f"🔐 State: {state}")
     print(f"🔐 Error: {error}" if error else "No error")
@@ -115,27 +100,45 @@ def oauth_callback():
     if not code:
         return "No authorization code received", 400
     
-    # Exchange code for token
-    print("🔐 Exchanging code for token...")
+    # Exchange code for token using unified configuration
+    print(f"🔐 Exchanging code for {config.ENVIRONMENT_NAME} token...")
     token_data = exchange_code_for_token(code)
     
     if token_data and token_data.get('access_token'):
-        print("🔐 Successfully received tokens!")
-        # Store both access and refresh tokens in session
-        session['access_token'] = token_data['access_token']
-        if token_data.get('refresh_token'):
-            session['refresh_token'] = token_data['refresh_token']
+        print(f"🔐 Successfully received {config.ENVIRONMENT_NAME} tokens!")
         
-        # Also set the tokens in tt.py module
-        set_access_token(token_data['access_token'])
-        if token_data.get('refresh_token'):
-            set_refresh_token(token_data['refresh_token'])
-            
-        print("🔐 Redirecting to dashboard...")
-        return redirect('/dashboard')
+        # Store tokens using unified token manager
+        from token_manager import set_tokens
+        success = set_tokens(
+            access_token=token_data['access_token'],
+            refresh_token=token_data.get('refresh_token')
+        )
+        
+        if success:
+            print(f"🔐 Redirecting to dashboard...")
+            return redirect('/dashboard')
+        else:
+            print(f"🔐 Failed to store {config.ENVIRONMENT_NAME} tokens")
+            return f"Failed to store {config.ENVIRONMENT_NAME} tokens", 500
     else:
-        print("🔐 Failed to exchange code for token")
-        return "Failed to exchange code for token", 500
+        print(f"🔐 Failed to exchange code for {config.ENVIRONMENT_NAME} token")
+        return f"Failed to exchange code for {config.ENVIRONMENT_NAME} token", 500
+
+# Legacy OAuth callback routes for backward compatibility
+@app.route('/zscialespersonal')
+@app.route('/tt') 
+@app.route('/zscialesProd')
+@app.route('/ttProd')
+def legacy_oauth_callback():
+    """Legacy OAuth callback routes - redirect to unified callback"""
+    print(f"⚠️ Legacy OAuth callback accessed: {request.path}")
+    print(f"� Redirecting to unified OAuth callback for {config.ENVIRONMENT_NAME}")
+    
+    # Preserve query parameters for the redirect
+    query_string = request.query_string.decode('utf-8')
+    redirect_url = f'/oauth/callback?{query_string}' if query_string else '/oauth/callback'
+    
+    return redirect(redirect_url)
 
 @app.route('/status')
 def status():
