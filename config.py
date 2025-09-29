@@ -38,56 +38,50 @@ USING_PRODUCTION_TT_CREDS = (
 if IS_PRODUCTION:
     # Production settings (Railway/algaebot.com)
     BASE_URL = "https://algaebot.com"
-    TT_REDIRECT_URI = f"{BASE_URL}/ttProd"  # Production callback URL for TastyTrade Prod
-    TT_SANDBOX_REDIRECT_URI = os.getenv('TT_REDIRECT_URI', f"{BASE_URL}/ttSandbox")  # Sandbox callback
+    TT_REDIRECT_URI = f"{BASE_URL}/oauth/callback"  # Unified callback URL
     FLASK_ENV = "production"
     DEBUG = False
     PORT = int(os.getenv('PORT', 5000))  # Railway assigns PORT
 else:
     # Development settings (localhost)
     BASE_URL = "https://127.0.0.1:5001"
-    TT_REDIRECT_URI = f"{BASE_URL}/zscialesProd"  # Development callback URL for TastyTrade Prod
-    TT_SANDBOX_REDIRECT_URI = f"{BASE_URL}/oauth/sandbox/callback"  # New sandbox callback URI
+    TT_REDIRECT_URI = f"{BASE_URL}/oauth/callback"  # Unified callback URL
     FLASK_ENV = "development"
     DEBUG = True
     PORT = 5001
 
 print(f"🌍 Environment: {'PRODUCTION' if IS_PRODUCTION else 'DEVELOPMENT'}")
 print(f"🔗 Base URL: {BASE_URL}")
-print(f"🔄 TT Redirect URI (Production): {TT_REDIRECT_URI}")
-print(f"🔄 TT Sandbox Redirect URI: {TT_SANDBOX_REDIRECT_URI}")
+print(f"🔄 TT Redirect URI: {TT_REDIRECT_URI}")
 
 # =============================================================================
-# TASTYTRADE DUAL ENVIRONMENT CONFIGURATION
+# TASTYTRADE UNIFIED ENVIRONMENT CONFIGURATION
 # =============================================================================
 
-# Data Gathering: Always use Production TastyTrade for quality market data
-TT_DATA_API_KEY = os.getenv('TT_API_KEY')
-TT_DATA_API_SECRET = os.getenv('TT_API_SECRET') 
-TT_DATA_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
-
-# Trading Execution: Environment-dependent
+# Unified API Configuration: Environment determines ALL API operations
 if IS_PRODUCTION:
-    # Production deployment: Use real TastyTrade for actual trading
-    TT_TRADING_API_KEY = os.getenv('TT_API_KEY')
-    TT_TRADING_API_SECRET = os.getenv('TT_API_SECRET')
-    TT_TRADING_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
-    TT_TRADING_ACCOUNT_NUMBER = None  # Will be fetched dynamically in production
-    TT_TRADING_USERNAME = None
-    TT_TRADING_PASSWORD = None
-    TRADING_MODE = "PRODUCTION"
+    # Production deployment: ALL operations use Production TastyTrade API
+    TT_API_KEY = os.getenv('TT_API_KEY')
+    TT_API_SECRET = os.getenv('TT_API_SECRET')
+    TT_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
+    TT_OAUTH_BASE_URL = 'https://developer.tastyworks.com'
+    TT_ACCOUNT_NUMBER = None  # Will be fetched dynamically in production
+    TT_USERNAME = None
+    TT_PASSWORD = None
+    ENVIRONMENT_NAME = "PRODUCTION"
 else:
-    # Development/Local: Use Sandbox for safe testing
-    TT_TRADING_API_KEY = os.getenv('TT_API_KEY_SANDBOX')
-    TT_TRADING_API_SECRET = os.getenv('TT_API_SECRET_SANDBOX')
-    TT_TRADING_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com')
-    TT_TRADING_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
-    TT_TRADING_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
-    TT_TRADING_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
-    TRADING_MODE = "SANDBOX"
+    # Development/Local: ALL operations use Sandbox TastyTrade API
+    TT_API_KEY = os.getenv('TT_API_KEY_SANDBOX')
+    TT_API_SECRET = os.getenv('TT_API_SECRET_SANDBOX')
+    TT_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com')
+    TT_OAUTH_BASE_URL = 'https://developer.cert.tastyworks.com'
+    TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
+    TT_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
+    TT_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
+    ENVIRONMENT_NAME = "SANDBOX"
 
-print(f"📊 Data API: {TT_DATA_BASE_URL} (Production for quality data)")
-print(f"🎯 Trading API: {TT_TRADING_BASE_URL} ({TRADING_MODE})")
+print(f"🎯 Unified API: {TT_BASE_URL} ({ENVIRONMENT_NAME})")
+print(f"🔐 OAuth Base: {TT_OAUTH_BASE_URL}")
 
 # =============================================================================
 # API CREDENTIALS
