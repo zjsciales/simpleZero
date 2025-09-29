@@ -28,101 +28,75 @@
             <h3>🧪 Sandbox Authentication</h3>
             <div class="auth-status {{ 'authenticated' if sandbox_authenticated else 'not-authenticated' }}">
                 {% if sandbox_authenticated %}
-                    ✅ Connected to Sandbox (Trading Ready)
+                    ✅ Connected to Sandbox (Trading Enabled)
                 {% else %}
-                    ❌ Not Connected - Login Required for Trading
+                    ❌ Not Connected
                 {% endif %}
             </div>
-            
-            {% if not sandbox_authenticated %}
-            <div class="sandbox-login-form" style="margin-top: 15px;">
-                <h4>Connect to TastyTrade Sandbox</h4>
-                <p>You'll be redirected to TastyTrade to authorize sandbox access for safe testing.</p>
-                <a href="/sandbox-auth" class="btn btn-primary">🔐 Connect Sandbox via OAuth</a>
-            </div>
-            {% endif %}
         </div>
+        
+        {% if not sandbox_authenticated %}
+            <div class="auth-warning">
+                ⚠️ Connect to sandbox to enable trading functionality
+            </div>
+        {% endif %}
     </div>
 
-    <!-- Account Streaming Panel -->
+    <!-- Sandbox Authentication Panel (if not authenticated) -->
     {% if sandbox_authenticated %}
-    <div class="streaming-panel">
-        <h3>📡 Real-time Order Streaming</h3>
-        <div class="streaming-controls">
-            <div class="streaming-status" id="streamingStatus">
-                <span class="status-indicator" id="statusIndicator">⚫</span>
-                <span id="statusText">Checking status...</span>
-            </div>
-            
-            <div class="streaming-buttons">
-                <button id="startStreamingBtn" class="btn btn-success" onclick="startStreaming()">
-                    ▶️ Start Monitoring
-                </button>
-                <button id="stopStreamingBtn" class="btn btn-danger" onclick="stopStreaming()" style="display: none;">
-                    ⏹️ Stop Monitoring
-                </button>
-            </div>
-        </div>
-
-        <div class="streaming-updates" id="streamingUpdates" style="display: none;">
-            <h4>📊 Recent Updates</h4>
-            <div class="update-log" id="updateLog">
-                <div class="update-item">
-                    <span class="update-time">Ready to monitor...</span>
-                    <span class="update-text">Start streaming to see real-time order updates</span>
-                </div>
-            </div>
-        </div>
-    </div>
+        <!-- Trade data display when authenticated -->
     {% endif %}
 
     <!-- Parsed Trade Display -->
     {% if parsed_trade %}
     <div class="trade-display">
         <div class="trade-header-info">
-            <h2>📊 Parsed Trade Signal</h2>
-            <div class="trade-timestamp">
-                Generated: {{ parsed_trade.timestamp }}
-            </div>
+            <h2>📊 Current Trade Analysis</h2>
         </div>
 
         <div class="trade-details">
             <div class="strategy-info">
-                <div class="strategy-badge strategy-{{ parsed_trade.strategy.lower().replace('_', '-') }}">
-                    {{ parsed_trade.strategy.replace('_', ' ').title() }}
+                {% if parsed_trade and parsed_trade.strategy_type and parsed_trade.strategy_type != None %}
+                <div class="strategy-badge strategy-{{ (parsed_trade.strategy_type|string|lower|replace('_', '-')) }}">
+                    {{ (parsed_trade.strategy_type|string|replace('_', ' ')|title) }}
                 </div>
+                {% else %}
+                <div class="strategy-badge strategy-unknown">
+                    Unknown Strategy
+                </div>
+                {% endif %}
                 <div class="confidence-score">
-                    Confidence: {{ parsed_trade.confidence }}%
+                    Confidence: {{ parsed_trade.confidence or 'N/A' }}%
                 </div>
             </div>
 
             <div class="trade-specs">
                 <div class="spec-group">
                     <h4>📈 Underlying</h4>
-                    <span class="spec-value">{{ parsed_trade.underlying }}</span>
+                    <span class="spec-value">{{ parsed_trade.underlying or parsed_trade.ticker or 'N/A' }}</span>
                 </div>
 
                 <div class="spec-group">
                     <h4>🎯 Strikes</h4>
                     <span class="spec-value">
-                        Short: ${{ parsed_trade.short_strike }} / Long: ${{ parsed_trade.long_strike }}
+                        Short: ${{ parsed_trade.short_strike or 'N/A' }} / Long: ${{ parsed_trade.long_strike or 'N/A' }}
                     </span>
                 </div>
 
                 <div class="spec-group">
                     <h4>📅 Expiration</h4>
-                    <span class="spec-value">{{ parsed_trade.expiration_date }}</span>
+                    <span class="spec-value">{{ parsed_trade.expiration or 'N/A' }}</span>
                 </div>
 
                 <div class="spec-group">
                     <h4>💰 Expected Credit</h4>
-                    <span class="spec-value">${{ "%.2f"|format(parsed_trade.credit) }}</span>
+                    <span class="spec-value">${{ "%.2f"|format(parsed_trade.credit_received or 0) }}</span>
                 </div>
 
                 <div class="spec-group">
                     <h4>📊 Market Bias</h4>
-                    <span class="spec-value bias-{{ parsed_trade.market_bias }}">
-                        {{ parsed_trade.market_bias.title() }}
+                    <span class="spec-value bias-{{ parsed_trade.market_bias or 'neutral' }}">
+                        {{ (parsed_trade.market_bias or 'Unknown').title() }}
                     </span>
                 </div>
             </div>
@@ -131,23 +105,33 @@
             <div class="contract-details">
                 <h4>📋 Contract Legs</h4>
                 <div class="legs-container">
-                    {% if parsed_trade.strategy == 'BULL_PUT_SPREAD' %}
-                        <div class="leg leg-short">
-                            <span class="leg-action">SELL TO OPEN</span>
-                            <span class="leg-contract">{{ parsed_trade.underlying }} {{ parsed_trade.expiration_date }}P{{ "%.0f"|format(parsed_trade.short_strike * 1000) }}</span>
-                        </div>
-                        <div class="leg leg-long">
-                            <span class="leg-action">BUY TO OPEN</span>
-                            <span class="leg-contract">{{ parsed_trade.underlying }} {{ parsed_trade.expiration_date }}P{{ "%.0f"|format(parsed_trade.long_strike * 1000) }}</span>
-                        </div>
-                    {% elif parsed_trade.strategy == 'BEAR_CALL_SPREAD' %}
-                        <div class="leg leg-short">
-                            <span class="leg-action">SELL TO OPEN</span>
-                            <span class="leg-contract">{{ parsed_trade.underlying }} {{ parsed_trade.expiration_date }}C{{ "%.0f"|format(parsed_trade.short_strike * 1000) }}</span>
-                        </div>
-                        <div class="leg leg-long">
-                            <span class="leg-action">BUY TO OPEN</span>
-                            <span class="leg-contract">{{ parsed_trade.underlying }} {{ parsed_trade.expiration_date }}C{{ "%.0f"|format(parsed_trade.long_strike * 1000) }}</span>
+                    {% if parsed_trade and parsed_trade.strategy_type %}
+                        {% if parsed_trade.strategy_type == 'BULL_PUT_SPREAD' %}
+                            <div class="leg leg-short">
+                                <span class="leg-action">SELL TO OPEN</span>
+                                <span class="leg-contract">{{ parsed_trade.underlying_symbol or 'SPY' }} {{ parsed_trade.expiration or 'TBD' }}P{{ "%.0f"|format((parsed_trade.short_strike or 0) * 1000) }}</span>
+                            </div>
+                            <div class="leg leg-long">
+                                <span class="leg-action">BUY TO OPEN</span>
+                                <span class="leg-contract">{{ parsed_trade.underlying_symbol or 'SPY' }} {{ parsed_trade.expiration or 'TBD' }}P{{ "%.0f"|format((parsed_trade.long_strike or 0) * 1000) }}</span>
+                            </div>
+                        {% elif parsed_trade.strategy_type == 'BEAR_CALL_SPREAD' %}
+                            <div class="leg leg-short">
+                                <span class="leg-action">SELL TO OPEN</span>
+                                <span class="leg-contract">{{ parsed_trade.underlying_symbol or 'SPY' }} {{ parsed_trade.expiration or 'TBD' }}C{{ "%.0f"|format((parsed_trade.short_strike or 0) * 1000) }}</span>
+                            </div>
+                            <div class="leg leg-long">
+                                <span class="leg-action">BUY TO OPEN</span>
+                                <span class="leg-contract">{{ parsed_trade.underlying_symbol or 'SPY' }} {{ parsed_trade.expiration or 'TBD' }}C{{ "%.0f"|format((parsed_trade.long_strike or 0) * 1000) }}</span>
+                            </div>
+                        {% else %}
+                            <div class="leg">
+                                <span class="leg-action">Strategy details not available</span>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="leg">
+                            <span class="leg-action">No trade data available</span>
                         </div>
                     {% endif %}
                 </div>
@@ -159,15 +143,16 @@
                     <button id="validateTradeBtn" class="btn btn-secondary">🔍 Validate Trade</button>
                     <button id="executeTradeBtn" class="btn btn-primary">🚀 Execute Trade</button>
                 {% else %}
-                    <div class="action-disabled">
-                        🔒 Sandbox authentication required for trading
+                    <div class="auth-required">
+                        <p>🔐 Sandbox authentication required for trading</p>
+                        <button class="btn btn-outline">Connect to Sandbox</button>
                     </div>
                 {% endif %}
             </div>
         </div>
     </div>
     {% else %}
-    <div class="no-trade">
+    <div class="no-trade-data">
         <div class="no-trade-content">
             <h2>📭 No Trade Signal Available</h2>
             <p>Request a Grok analysis from the <a href="/dashboard">dashboard</a> to generate trade signals.</p>
@@ -184,36 +169,37 @@
 
 <style>
 .trade-container {
-    max-width: 1000px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
 }
 
 .trade-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 12px;
     margin-bottom: 30px;
+    text-align: center;
 }
 
 .environment-indicator {
+    display: inline-block;
     padding: 8px 16px;
-    border-radius: 6px;
+    border-radius: 20px;
+    font-size: 14px;
     font-weight: 600;
-    text-transform: uppercase;
-    font-size: 12px;
+    margin-top: 10px;
 }
 
 .environment-sandbox {
-    background: #fef3c7;
-    color: #d97706;
-    border: 1px solid #f59e0b;
+    background: rgba(255, 193, 7, 0.2);
+    border: 2px solid #ffc107;
 }
 
 .environment-production {
-    background: #fee2e2;
-    color: #dc2626;
-    border: 1px solid #ef4444;
+    background: rgba(220, 53, 69, 0.2);
+    border: 2px solid #dc3545;
 }
 
 .auth-panel {
@@ -221,403 +207,224 @@
     grid-template-columns: 1fr 1fr;
     gap: 20px;
     margin-bottom: 30px;
-    padding: 20px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.auth-section h3 {
-    margin-bottom: 10px;
-    color: #374151;
+.auth-section {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
 }
 
 .auth-status {
     padding: 10px;
     border-radius: 6px;
-    font-weight: 500;
+    text-align: center;
+    font-weight: 600;
+    margin-top: 10px;
 }
 
 .auth-status.authenticated {
-    background: #dcfce7;
-    color: #166534;
-    border: 1px solid #22c55e;
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
 }
 
 .auth-status.not-authenticated {
-    background: #fef2f2;
-    color: #dc2626;
-    border: 1px solid #ef4444;
-}
-
-.sandbox-login-form {
-    padding: 15px;
-    background: #f9fafb;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
-}
-
-.sandbox-login-form h4 {
-    margin-bottom: 10px;
-    color: #374151;
-}
-
-.form-group {
-    margin-bottom: 10px;
-}
-
-.form-group input {
-    width: 100%;
-    padding: 8px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    font-size: 14px;
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
 }
 
 .trade-display {
     background: white;
-    border-radius: 8px;
-    padding: 25px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 30px;
     margin-bottom: 30px;
 }
 
-.trade-header-info {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 15px;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.trade-timestamp {
-    color: #6b7280;
-    font-size: 14px;
-}
-
 .strategy-info {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: 20px;
+    text-align: center;
+    margin-bottom: 30px;
 }
 
 .strategy-badge {
-    padding: 8px 16px;
-    border-radius: 20px;
-    font-weight: 600;
-    text-transform: uppercase;
-    font-size: 12px;
+    display: inline-block;
+    padding: 12px 24px;
+    border-radius: 25px;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 15px;
 }
 
 .strategy-bull-put-spread {
-    background: #dcfce7;
-    color: #166534;
+    background: #d4edda;
+    color: #155724;
+    border: 2px solid #28a745;
 }
 
 .strategy-bear-call-spread {
-    background: #fef3c7;
-    color: #d97706;
+    background: #f8d7da;
+    color: #721c24;
+    border: 2px solid #dc3545;
+}
+
+.strategy-unknown {
+    background: #f8f9fa;
+    color: #6c757d;
+    border: 2px solid #6c757d;
 }
 
 .confidence-score {
-    background: #eff6ff;
-    color: #1d4ed8;
-    padding: 6px 12px;
-    border-radius: 12px;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 16px;
+    color: #6c757d;
 }
 
 .trade-specs {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 25px;
+    gap: 20px;
+    margin-bottom: 30px;
 }
 
 .spec-group {
-    padding: 15px;
-    background: #f9fafb;
-    border-radius: 6px;
-    border: 1px solid #e5e7eb;
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    text-align: center;
 }
 
 .spec-group h4 {
-    color: #6b7280;
-    font-size: 12px;
-    text-transform: uppercase;
-    margin-bottom: 5px;
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 14px;
 }
 
 .spec-value {
-    color: #111827;
+    font-size: 18px;
     font-weight: 600;
-    font-size: 16px;
-}
-
-.bias-bullish {
-    color: #059669;
-}
-
-.bias-bearish {
-    color: #dc2626;
+    color: #212529;
 }
 
 .contract-details {
-    margin-bottom: 25px;
-}
-
-.contract-details h4 {
-    margin-bottom: 15px;
-    color: #374151;
+    margin-bottom: 30px;
 }
 
 .legs-container {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
+    gap: 20px;
+    flex-wrap: wrap;
 }
 
 .leg {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 15px;
-    border-radius: 6px;
-    font-family: 'Monaco', 'Courier New', monospace;
+    flex: 1;
+    min-width: 250px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
 }
 
 .leg-short {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
+    border-left: 4px solid #dc3545;
 }
 
 .leg-long {
-    background: #ecfdf5;
-    border: 1px solid #bbf7d0;
+    border-left: 4px solid #28a745;
 }
 
 .leg-action {
+    display: block;
     font-weight: 600;
-    font-size: 12px;
+    color: #495057;
+    margin-bottom: 10px;
 }
 
 .leg-contract {
-    font-weight: 500;
+    display: block;
+    font-size: 16px;
+    font-family: monospace;
+    color: #212529;
 }
 
 .trade-actions {
-    display: flex;
-    gap: 15px;
-    justify-content: center;
-    margin-top: 25px;
-    padding-top: 20px;
-    border-top: 1px solid #e5e7eb;
+    text-align: center;
 }
 
 .btn {
+    display: inline-block;
     padding: 12px 24px;
+    border: none;
     border-radius: 6px;
+    font-size: 16px;
     font-weight: 600;
     text-decoration: none;
-    border: none;
     cursor: pointer;
-    transition: all 0.2s;
+    margin: 0 10px;
+    transition: all 0.3s ease;
 }
 
 .btn-primary {
-    background: #3b82f6;
+    background: #007bff;
     color: white;
 }
 
 .btn-primary:hover {
-    background: #2563eb;
+    background: #0056b3;
 }
 
 .btn-secondary {
-    background: #6b7280;
+    background: #6c757d;
     color: white;
 }
 
 .btn-secondary:hover {
-    background: #4b5563;
+    background: #545b62;
 }
 
-.action-disabled {
-    color: #6b7280;
-    font-style: italic;
-    text-align: center;
-    padding: 12px;
-}
-
-.no-trade {
+.no-trade-data {
     text-align: center;
     padding: 60px 20px;
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.no-trade-content h2 {
-    color: #6b7280;
-    margin-bottom: 15px;
-}
-
-.no-trade-content p {
-    color: #9ca3af;
-    margin-bottom: 25px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
 }
 
 .execution-results {
     background: white;
-    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
     padding: 20px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-/* Streaming Panel Styles */
-.streaming-panel {
-    background: white;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    border-left: 4px solid #3b82f6;
-}
-
-.streaming-panel h3 {
-    margin: 0 0 15px 0;
-    color: #1f2937;
-    display: flex;
-    align-items: center;
-}
-
-.streaming-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 15px;
-    margin-bottom: 20px;
-}
-
-.streaming-status {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
-}
-
-.status-indicator {
-    font-size: 12px;
-}
-
-.streaming-buttons {
-    display: flex;
-    gap: 10px;
-}
-
-.streaming-updates {
-    border-top: 1px solid #e5e7eb;
-    padding-top: 20px;
-}
-
-.streaming-updates h4 {
-    margin: 0 0 15px 0;
-    color: #374151;
-}
-
-.update-log {
-    max-height: 300px;
-    overflow-y: auto;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    padding: 10px;
-}
-
-.update-item {
-    display: flex;
-    padding: 8px 0;
-    border-bottom: 1px solid #e5e7eb;
-    font-family: 'Monaco', 'Courier New', monospace;
-    font-size: 13px;
-}
-
-.update-item:last-child {
-    border-bottom: none;
-}
-
-.update-time {
-    color: #6b7280;
-    min-width: 80px;
-    margin-right: 10px;
-}
-
-.update-text {
-    color: #374151;
-    flex: 1;
-}
-
-.btn-success {
-    background: #10b981;
-    color: white;
-    border: 1px solid #10b981;
-}
-
-.btn-success:hover {
-    background: #059669;
-    border-color: #059669;
-}
-
-.btn-danger {
-    background: #ef4444;
-    color: white;
-    border: 1px solid #ef4444;
-}
-
-.btn-danger:hover {
-    background: #dc2626;
-    border-color: #dc2626;
+    margin-top: 20px;
 }
 </style>
 
 <script>
-// Sandbox OAuth - no form handler needed, handled by server redirect
+// Trade validation and execution functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const validateBtn = document.getElementById('validateTradeBtn');
+    const executeBtn = document.getElementById('executeTradeBtn');
+    const resultsDiv = document.getElementById('executionResults');
 
-// Trade validation handler
-document.getElementById('validateTradeBtn')?.addEventListener('click', async function() {
-    const btn = this;
-    btn.textContent = '🔄 Validating...';
-    btn.disabled = true;
-    
-    try {
-        // Here we would validate the trade parameters
-        // For now, just show success
-        setTimeout(() => {
-            alert('✅ Trade validation successful!\n\nAll parameters look good for execution.');
-            btn.textContent = '🔍 Validate Trade';
-            btn.disabled = false;
-        }, 2000);
-    } catch (error) {
-        alert('❌ Validation failed: ' + error.message);
-        btn.textContent = '🔍 Validate Trade';
-        btn.disabled = false;
+    if (validateBtn) {
+        validateBtn.addEventListener('click', validateTrade);
+    }
+
+    if (executeBtn) {
+        executeBtn.addEventListener('click', executeTrade);
     }
 });
 
-// Trade execution handler
-document.getElementById('executeTradeBtn')?.addEventListener('click', async function() {
-    const btn = this;
-    
-    // Confirmation dialog
-    const confirmed = confirm('🚀 Execute this trade in the Sandbox environment?\n\nThis will submit a real order to TastyTrade Sandbox.');
-    if (!confirmed) return;
-    
-    btn.textContent = '🚀 Executing...';
-    btn.disabled = true;
+async function validateTrade() {
+    console.log('🔍 Validating trade...');
+    // Add validation logic here
+}
+
+async function executeTrade() {
+    console.log('🚀 Executing trade...');
+    const resultsDiv = document.getElementById('executionResults');
     
     try {
         const response = await fetch('/api/execute-trade', {
@@ -629,221 +436,27 @@ document.getElementById('executeTradeBtn')?.addEventListener('click', async func
         
         const result = await response.json();
         
-        if (result.success) {
-            // Show success message
-            const resultsDiv = document.getElementById('executionResults');
-            resultsDiv.innerHTML = `
-                <div style="background: #dcfce7; border: 1px solid #22c55e; color: #166534; padding: 15px; border-radius: 6px;">
-                    <h3>✅ Trade Executed Successfully!</h3>
-                    <p><strong>Order ID:</strong> ${result.order_id || 'N/A'}</p>
-                    <p><strong>Status:</strong> ${result.result?.status || 'Submitted'}</p>
-                    <pre style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px; font-size: 12px;">${JSON.stringify(result.result, null, 2)}</pre>
-                </div>
-            `;
-            resultsDiv.style.display = 'block';
-        } else {
-            // Show error
-            const resultsDiv = document.getElementById('executionResults');
-            resultsDiv.innerHTML = `
-                <div style="background: #fef2f2; border: 1px solid #ef4444; color: #dc2626; padding: 15px; border-radius: 6px;">
-                    <h3>❌ Trade Execution Failed</h3>
-                    <p>${result.error || 'Unknown error occurred'}</p>
-                    ${result.details ? `<pre style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 4px; font-size: 12px;">${JSON.stringify(result.details, null, 2)}</pre>` : ''}
-                </div>
-            `;
-            resultsDiv.style.display = 'block';
-        }
-    } catch (error) {
-        console.error('Trade execution error:', error);
-        const resultsDiv = document.getElementById('executionResults');
-        resultsDiv.innerHTML = `
-            <div style="background: #fef2f2; border: 1px solid #ef4444; color: #dc2626; padding: 15px; border-radius: 6px;">
-                <h3>❌ Connection Error</h3>
-                <p>${error.message}</p>
-            </div>
-        `;
         resultsDiv.style.display = 'block';
-    } finally {
-        btn.textContent = '🚀 Execute Trade';
-        btn.disabled = false;
-    }
-});
-
-// =============================================================================
-// ACCOUNT STREAMING FUNCTIONS
-// =============================================================================
-
-let streamingActive = false;
-let updateInterval = null;
-
-async function checkStreamingStatus() {
-    try {
-        const response = await fetch('/api/streaming/status');
-        const data = await response.json();
-        
-        streamingActive = data.streaming_active;
-        updateStreamingUI(data);
-        
-        if (streamingActive) {
-            startUpdatePolling();
-        }
-        
-    } catch (error) {
-        console.error('Error checking streaming status:', error);
-        updateStreamingUI({streaming_active: false, error: error.message});
-    }
-}
-
-async function startStreaming() {
-    const btn = document.getElementById('startStreamingBtn');
-    const originalText = btn.textContent;
-    
-    try {
-        btn.textContent = '🔄 Starting...';
-        btn.disabled = true;
-        
-        const response = await fetch('/api/streaming/start', {method: 'POST'});
-        const data = await response.json();
-        
-        if (data.success) {
-            streamingActive = true;
-            updateStreamingUI({
-                streaming_active: true,
-                streamer_status: data.status,
-                accounts: data.accounts
-            });
-            startUpdatePolling();
-            
-            addUpdateLog('✅ Started', 'Account streaming started successfully');
+        if (result.success) {
+            resultsDiv.innerHTML = `
+                <h3>✅ Trade Executed Successfully</h3>
+                <p>Order ID: ${result.order_id}</p>
+                <p>Status: ${result.result.status}</p>
+                <p>Message: ${result.result.message}</p>
+            `;
         } else {
-            throw new Error(data.error || 'Failed to start streaming');
+            resultsDiv.innerHTML = `
+                <h3>❌ Trade Execution Failed</h3>
+                <p>Error: ${result.error}</p>
+            `;
         }
-        
     } catch (error) {
-        console.error('Error starting streaming:', error);
-        addUpdateLog('❌ Error', `Failed to start streaming: ${error.message}`);
-    } finally {
-        btn.textContent = originalText;
-        btn.disabled = false;
+        resultsDiv.style.display = 'block';
+        resultsDiv.innerHTML = `
+            <h3>❌ Trade Execution Error</h3>
+            <p>Error: ${error.message}</p>
+        `;
     }
 }
-
-async function stopStreaming() {
-    const btn = document.getElementById('stopStreamingBtn');
-    const originalText = btn.textContent;
-    
-    try {
-        btn.textContent = '🔄 Stopping...';
-        btn.disabled = true;
-        
-        const response = await fetch('/api/streaming/stop', {method: 'POST'});
-        const data = await response.json();
-        
-        streamingActive = false;
-        stopUpdatePolling();
-        updateStreamingUI({streaming_active: false});
-        
-        addUpdateLog('⏹️ Stopped', 'Account streaming stopped');
-        
-    } catch (error) {
-        console.error('Error stopping streaming:', error);
-        addUpdateLog('❌ Error', `Failed to stop streaming: ${error.message}`);
-    } finally {
-        btn.textContent = originalText;
-        btn.disabled = false;
-    }
-}
-
-function updateStreamingUI(data) {
-    const statusIndicator = document.getElementById('statusIndicator');
-    const statusText = document.getElementById('statusText');
-    const startBtn = document.getElementById('startStreamingBtn');
-    const stopBtn = document.getElementById('stopStreamingBtn');
-    const updatesPanel = document.getElementById('streamingUpdates');
-    
-    if (data.streaming_active) {
-        statusIndicator.textContent = '🟢';
-        statusText.textContent = 'Connected & Monitoring';
-        startBtn.style.display = 'none';
-        stopBtn.style.display = 'inline-block';
-        updatesPanel.style.display = 'block';
-        
-        if (data.streamer_status && data.streamer_status.accounts) {
-            statusText.textContent += ` (${data.streamer_status.accounts.length} accounts)`;
-        }
-    } else {
-        statusIndicator.textContent = '🔴';
-        statusText.textContent = data.error ? `Error: ${data.error}` : 'Not Connected';
-        startBtn.style.display = 'inline-block';
-        stopBtn.style.display = 'none';
-        updatesPanel.style.display = 'block'; // Keep visible to show logs
-    }
-}
-
-function startUpdatePolling() {
-    if (updateInterval) clearInterval(updateInterval);
-    
-    updateInterval = setInterval(async () => {
-        if (!streamingActive) return;
-        
-        try {
-            const response = await fetch('/api/streaming/updates');
-            const data = await response.json();
-            
-            // Check for new order updates
-            if (data.orders && data.orders.order_data) {
-                const order = data.orders.order_data;
-                addUpdateLog('📋 Order', `Order ${order.id}: ${order.status}`);
-            }
-            
-            // Check for new fills
-            if (data.fills && data.fills.fill_data) {
-                const fill = data.fills.fill_data;
-                addUpdateLog('🎯 Fill', `Fill received: ${JSON.stringify(fill).substring(0, 100)}...`);
-            }
-            
-            // Check for balance updates
-            if (data.balances && data.balances.balance_data) {
-                const balance = data.balances.balance_data;
-                addUpdateLog('💰 Balance', `Balance updated for account ${balance['account-number']}`);
-            }
-            
-        } catch (error) {
-            console.error('Error polling updates:', error);
-        }
-    }, 2000); // Poll every 2 seconds
-}
-
-function stopUpdatePolling() {
-    if (updateInterval) {
-        clearInterval(updateInterval);
-        updateInterval = null;
-    }
-}
-
-function addUpdateLog(type, message) {
-    const updateLog = document.getElementById('updateLog');
-    const timestamp = new Date().toLocaleTimeString();
-    
-    const updateItem = document.createElement('div');
-    updateItem.className = 'update-item';
-    updateItem.innerHTML = `
-        <span class="update-time">${timestamp}</span>
-        <span class="update-text">[${type}] ${message}</span>
-    `;
-    
-    // Add to top of log
-    updateLog.insertBefore(updateItem, updateLog.firstChild);
-    
-    // Keep only last 10 updates
-    while (updateLog.children.length > 10) {
-        updateLog.removeChild(updateLog.lastChild);
-    }
-}
-
-// Initialize streaming status check when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    checkStreamingStatus();
-});
 </script>
 {% endblock %}

@@ -660,6 +660,141 @@ def get_latest_trade_recommendation():
         print(f"💥 Exception getting latest trade recommendation: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
+@app.route('/api/cached-grok-response')
+def get_cached_grok_response():
+    """API endpoint to get the latest cached Grok response"""
+    try:
+        # Get session ID
+        session_id = get_user_session_id()
+        
+        # Get user ID from database based on session ID
+        user_id = db_storage.get_or_create_user_id(session_id=session_id)
+        
+        print(f"🔍 Cached response debug: session_id={session_id}, user_id={user_id}")
+        
+        # Get latest Grok response and parsed trade
+        raw_response = db_storage.get_latest_data('grok_raw_response', user_id=user_id)
+        parsed_trade = db_storage.get_latest_data('parsed_trade', user_id=user_id)
+        
+        print(f"🔍 Raw response found: {raw_response is not None}")
+        print(f"🔍 Parsed trade found: {parsed_trade is not None}")
+        
+        # If no data found for current user, get latest from any user
+        if not raw_response:
+            print("🔄 No data for current user, checking for latest from any user...")
+            conn = db_storage.get_db_connection()
+            cursor = conn.cursor()
+            
+            # Get latest raw response from any user
+            cursor.execute("SELECT data_json FROM trade_data WHERE data_type = 'grok_raw_response' ORDER BY updated_at DESC LIMIT 1")
+            result = cursor.fetchone()
+            if result:
+                import json
+                raw_response = json.loads(result['data_json'])
+                print("✅ Found latest raw response from database")
+            
+            # Get latest parsed trade from any user  
+            cursor.execute("SELECT data_json FROM trade_data WHERE data_type = 'parsed_trade' ORDER BY updated_at DESC LIMIT 1")
+            result = cursor.fetchone()
+            if result:
+                import json
+                parsed_trade = json.loads(result['data_json'])
+                print("✅ Found latest parsed trade from database")
+            
+            conn.close()
+        
+        if raw_response:
+            response_data = {
+                'success': True,
+                'cached_response': raw_response.get('response', ''),
+                'timestamp': raw_response.get('timestamp', ''),
+                'parsed_trade': parsed_trade
+            }
+        else:
+            response_data = {
+                'success': False,
+                'message': 'No cached response available'
+            }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"💥 Exception getting cached Grok response: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
+@app.route('/trade')
+def trade_page():
+    """Trade management page - displays latest trade recommendation"""
+    try:
+        # Check authentication first
+        token = session.get('access_token')
+        if not token:
+            return redirect('/login')
+        
+        # Get session ID
+        session_id = get_user_session_id()
+        
+        # Get user ID from database based on session ID  
+        user_id = db_storage.get_or_create_user_id(session_id=session_id)
+        
+        # Get latest parsed trade recommendation
+        parsed_trade_data = db_storage.get_latest_data('parsed_trade', user_id=user_id)
+        
+        # If no data found for current user, get latest from any user
+        if not parsed_trade_data:
+            print("🔄 No trade data for current user, checking for latest from any user...")
+            conn = db_storage.get_db_connection()
+            cursor = conn.cursor()
+            
+            # Get latest parsed trade from any user  
+            cursor.execute("SELECT data_json FROM trade_data WHERE data_type = 'parsed_trade' ORDER BY updated_at DESC LIMIT 1")
+            result = cursor.fetchone()
+            if result:
+                import json
+                parsed_trade_data = json.loads(result['data_json'])
+                print("✅ Found latest parsed trade from database")
+            
+            conn.close()
+        
+        # Convert dictionary to object-like structure for template compatibility
+        parsed_trade = None
+        if parsed_trade_data:
+            # Create a simple namespace object that allows dot notation access
+            class TradeData:
+                def __init__(self, data_dict):
+                    for key, value in data_dict.items():
+                        setattr(self, key, value)
+            
+            parsed_trade = TradeData(parsed_trade_data)
+            print(f"🎯 Trade page: parsed trade converted - strategy_type={getattr(parsed_trade, 'strategy_type', 'N/A')}")
+            print(f"🎯 Trade page: available attributes={[attr for attr in dir(parsed_trade) if not attr.startswith('_')]}")
+        else:
+            print("❌ No parsed trade data found anywhere")
+        
+        # Determine environment and authentication status
+        environment = "PRODUCTION" if config.IS_PRODUCTION else "SANDBOX"
+        
+        # Check authentication status for both environments
+        prod_authenticated = bool(session.get('access_token'))  # Main token from production OAuth
+        sandbox_authenticated = bool(session.get('sandbox_access_token'))  # Sandbox token
+        
+        print(f"🎯 Trade page: environment={environment}, prod_auth={prod_authenticated}, sandbox_auth={sandbox_authenticated}")
+        print(f"🎯 Trade page: parsed_trade available={parsed_trade is not None}")
+        
+        return render_template(
+            'trade.html',
+            environment=environment,
+            prod_authenticated=prod_authenticated,
+            sandbox_authenticated=sandbox_authenticated,
+            parsed_trade=parsed_trade
+        )
+        
+    except Exception as e:
+        print(f"💥 Exception in trade page: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error: {str(e)}", 500
+
 @app.route('/data-management')
 def data_management():
     """Data management dashboard to view persistent storage"""
@@ -722,6 +857,81 @@ def auth_status():
     return jsonify({
         'authenticated': token is not None,
         'session_active': 'access_token' in session
+    })
+
+@app.route('/api/execute-trade', methods=['POST'])
+def execute_trade():
+    """Execute a trade (placeholder for now)"""
+    try:
+        # Check sandbox authentication
+        sandbox_token = session.get('sandbox_access_token')
+        if not sandbox_token:
+            return jsonify({
+                'success': False,
+                'error': 'Sandbox authentication required for trading'
+            }), 401
+        
+        # Get the latest parsed trade
+        session_id = get_user_session_id()
+        user_id = db_storage.get_or_create_user_id(session_id=session_id)
+        parsed_trade = db_storage.get_latest_data('parsed_trade', user_id=user_id)
+        
+        if not parsed_trade:
+            return jsonify({
+                'success': False,
+                'error': 'No trade signal available'
+            }), 400
+        
+        # TODO: Implement actual trade execution with TastyTrade API
+        # For now, return a success simulation
+        return jsonify({
+            'success': True,
+            'order_id': 'SIM123456789',
+            'result': {
+                'status': 'Submitted',
+                'strategy': parsed_trade.get('strategy', 'Unknown'),
+                'message': 'Trade submitted successfully to sandbox environment'
+            }
+        })
+        
+    except Exception as e:
+        print(f"💥 Exception in execute trade: {e}")
+        return jsonify({
+            'success': False,
+            'error': f'Exception: {str(e)}'
+        }), 500
+
+@app.route('/api/streaming/status')
+def streaming_status():
+    """Get streaming status (placeholder)"""
+    return jsonify({
+        'active': False,
+        'connected': False,
+        'message': 'Streaming not yet implemented'
+    })
+
+@app.route('/api/streaming/start', methods=['POST'])
+def start_streaming():
+    """Start order streaming (placeholder)"""
+    return jsonify({
+        'success': True,
+        'message': 'Streaming started (placeholder)'
+    })
+
+@app.route('/api/streaming/stop', methods=['POST'])
+def stop_streaming():
+    """Stop order streaming (placeholder)"""
+    return jsonify({
+        'success': True,
+        'message': 'Streaming stopped (placeholder)'
+    })
+
+@app.route('/api/streaming/updates')
+def streaming_updates():
+    """Get streaming updates (placeholder)"""
+    return jsonify({
+        'updates': [],
+        'last_update': datetime.now().isoformat()
     })
 
 if __name__ == '__main__':

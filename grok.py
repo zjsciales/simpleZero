@@ -129,12 +129,12 @@ class GrokAnalyzer:
             print(prompt[:500] + "..." if len(prompt) > 500 else prompt)
             print("-" * 50)
             
-            # Add timeout to prevent hanging
+            # Add timeout to prevent hanging - increased to 5 minutes for complex analysis
             response = requests.post(
                 self.base_url, 
                 headers=headers, 
                 json=data,
-                timeout=180  # 3 minute timeout
+                timeout=300  # 5 minute timeout for comprehensive analysis
             )
             
             print(f"📡 Response status: {response.status_code}")
