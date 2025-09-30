@@ -464,6 +464,136 @@ def create_production_streamer(access_token: str, account_numbers: List[str]) ->
     )
 
 
+# Global streamer instance for web app integration
+_global_streamer = None
+_streamer_lock = threading.Lock()
+
+
+def get_streamer_status() -> Dict[str, Any]:
+    """
+    Get current status of the global streamer instance
+    
+    Returns:
+        Dict containing streamer status information
+    """
+    with _streamer_lock:
+        if _global_streamer is None:
+            return {
+                'active': False,
+                'connected': False,
+                'session_id': None,
+                'accounts': [],
+                'uptime': 0,
+                'messages_received': 0
+            }
+        
+        return _global_streamer.get_status()
+
+
+def start_global_streamer(access_token: str, account_numbers: List[str] = None) -> Dict[str, Any]:
+    """
+    Start the global streamer instance for web app integration
+    
+    Args:
+        access_token: OAuth access token
+        account_numbers: Optional list of account numbers
+    
+    Returns:
+        Dict with success status and message
+    """
+    global _global_streamer
+    
+    with _streamer_lock:
+        # Stop existing streamer if running
+        if _global_streamer is not None:
+            print("🔄 Stopping existing streamer...")
+            _global_streamer.disconnect()
+            _global_streamer = None
+        
+        try:
+            # Create new streamer instance
+            print("🚀 Starting new account streamer...")
+            
+            # Use sandbox by default (can be configured)
+            use_sandbox = not config.IS_PRODUCTION
+            
+            _global_streamer = TastyTradeStreamer(
+                access_token=access_token,
+                account_numbers=account_numbers,
+                use_sandbox=use_sandbox,
+                heartbeat_interval=30
+            )
+            
+            # Add default handlers for logging
+            def default_order_handler(order_data, timestamp):
+                symbol = order_data.get('underlying-symbol', 'Unknown')
+                status = order_data.get('status', 'Unknown')
+                print(f"📋 Order Update: {symbol} - {status}")
+            
+            def default_fill_handler(fill_data, timestamp):
+                symbol = fill_data.get('underlying-symbol', 'Unknown')
+                quantity = fill_data.get('quantity', 0)
+                price = fill_data.get('price', 0)
+                print(f"💰 Fill: {quantity} {symbol} @ ${price}")
+            
+            _global_streamer.set_order_handler(default_order_handler)
+            _global_streamer.set_fill_handler(default_fill_handler)
+            
+            # Connect
+            if _global_streamer.connect():
+                return {
+                    'success': True,
+                    'message': 'Account streamer started successfully',
+                    'status': _global_streamer.get_status()
+                }
+            else:
+                _global_streamer = None
+                return {
+                    'success': False,
+                    'message': 'Failed to connect to account streamer'
+                }
+                
+        except Exception as e:
+            _global_streamer = None
+            return {
+                'success': False,
+                'message': f'Error starting streamer: {str(e)}'
+            }
+
+
+def stop_global_streamer() -> Dict[str, Any]:
+    """
+    Stop the global streamer instance
+    
+    Returns:
+        Dict with success status and message
+    """
+    global _global_streamer
+    
+    with _streamer_lock:
+        if _global_streamer is None:
+            return {
+                'success': True,
+                'message': 'No streamer was running'
+            }
+        
+        try:
+            print("🛑 Stopping account streamer...")
+            _global_streamer.disconnect()
+            _global_streamer = None
+            
+            return {
+                'success': True,
+                'message': 'Account streamer stopped successfully'
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'Error stopping streamer: {str(e)}'
+            }
+
+
 # Example usage and testing functions
 if __name__ == "__main__":
     """

@@ -518,6 +518,136 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+
+        /* Streaming Monitor Styles */
+        .streaming-controls {
+            border-bottom: 1px solid #e9ecef;
+            padding-bottom: 15px;
+        }
+
+        .streaming-status {
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .status-indicator.online {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-indicator.offline {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .streaming-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .info-item label {
+            font-weight: 500;
+            color: #6c757d;
+        }
+
+        .streaming-messages {
+            border-top: 1px solid #e9ecef;
+            padding-top: 20px;
+        }
+
+        .streaming-messages h4 {
+            margin-bottom: 15px;
+            color: #495057;
+        }
+
+        .message-log {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .message-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 8px;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .message-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-item.info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .message-item.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .message-item.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .message-item.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .message-item .timestamp {
+            font-weight: 500;
+            min-width: 80px;
+        }
+
+        .message-item .content {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
@@ -637,6 +767,64 @@
                 
                 <div id="analysis-result" class="analysis-result" style="display: none;">
                     <div id="analysis-content" class="analysis-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account Streaming Section -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📡 Account Streaming Monitor</h2>
+            <p class="card-description">Real-time account activity monitoring via TastyTrade websocket</p>
+        </div>
+        <div class="card-content">
+            <div class="streaming-controls" style="margin-bottom: 20px;">
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                    <button onclick="toggleAccountStreaming()" id="streaming-btn" class="btn btn-success">
+                        🔴 Start Monitoring
+                    </button>
+                    <button onclick="refreshStreamingStatus()" id="status-btn" class="btn btn-outline">
+                        🔄 Refresh Status
+                    </button>
+                </div>
+                
+                <div id="streaming-status" class="streaming-status">
+                    <div class="status-indicator offline">
+                        <span class="status-dot"></span>
+                        <span>Disconnected</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="streaming-info" class="streaming-info" style="display: none;">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Session ID:</label>
+                        <span id="session-id">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Accounts:</label>
+                        <span id="monitored-accounts">-</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Messages:</label>
+                        <span id="message-count">0</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Uptime:</label>
+                        <span id="uptime">0s</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="streaming-messages" class="streaming-messages">
+                <h4>Recent Activity</h4>
+                <div id="message-log" class="message-log">
+                    <div class="message-item info">
+                        <span class="timestamp">Ready</span>
+                        <span class="content">Click "Start Monitoring" to begin real-time account tracking</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1248,6 +1436,163 @@
                     }
                 });
         });
+
+        // Account Streaming Functions
+        let streamingActive = false;
+        let statusRefreshInterval;
+
+        async function toggleAccountStreaming() {
+            const btn = document.getElementById('streaming-btn');
+            
+            try {
+                if (!streamingActive) {
+                    // Start streaming
+                    btn.disabled = true;
+                    btn.textContent = 'Starting...';
+                    
+                    const response = await fetch('/api/account-streaming', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action: 'start' })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        streamingActive = true;
+                        btn.textContent = '🟢 Stop Monitoring';
+                        btn.className = 'btn btn-warning';
+                        
+                        updateStreamingStatus(data.status);
+                        addMessageToLog('success', 'Account streaming started successfully');
+                        
+                        // Start status refresh
+                        startStatusRefresh();
+                    } else {
+                        throw new Error(data.message || 'Failed to start streaming');
+                    }
+                } else {
+                    // Stop streaming
+                    btn.disabled = true;
+                    btn.textContent = 'Stopping...';
+                    
+                    const response = await fetch('/api/account-streaming', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ action: 'stop' })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        streamingActive = false;
+                        btn.textContent = '🔴 Start Monitoring';
+                        btn.className = 'btn btn-success';
+                        
+                        updateStreamingStatus({ active: false, connected: false });
+                        addMessageToLog('info', 'Account streaming stopped');
+                        
+                        // Stop status refresh
+                        stopStatusRefresh();
+                    } else {
+                        throw new Error(data.message || 'Failed to stop streaming');
+                    }
+                }
+            } catch (error) {
+                console.error('Streaming toggle error:', error);
+                addMessageToLog('error', `Error: ${error.message}`);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function refreshStreamingStatus() {
+            try {
+                const response = await fetch('/api/account-streaming');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateStreamingStatus(data.status);
+                    addMessageToLog('info', 'Status refreshed');
+                } else {
+                    throw new Error('Failed to get status');
+                }
+            } catch (error) {
+                console.error('Status refresh error:', error);
+                addMessageToLog('error', `Status refresh failed: ${error.message}`);
+            }
+        }
+
+        function updateStreamingStatus(status) {
+            const statusIndicator = document.querySelector('.status-indicator');
+            const streamingInfo = document.getElementById('streaming-info');
+            
+            if (status.active && status.connected) {
+                statusIndicator.className = 'status-indicator online';
+                statusIndicator.innerHTML = '<span class="status-dot"></span><span>Connected</span>';
+                streamingInfo.style.display = 'block';
+                
+                // Update info details
+                document.getElementById('session-id').textContent = status.session_id || '-';
+                document.getElementById('monitored-accounts').textContent = 
+                    status.accounts ? status.accounts.join(', ') : '-';
+                document.getElementById('message-count').textContent = status.messages_received || 0;
+                document.getElementById('uptime').textContent = formatUptime(status.uptime || 0);
+            } else {
+                statusIndicator.className = 'status-indicator offline';
+                statusIndicator.innerHTML = '<span class="status-dot"></span><span>Disconnected</span>';
+                streamingInfo.style.display = 'none';
+            }
+        }
+
+        function formatUptime(seconds) {
+            if (seconds < 60) return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+
+        function addMessageToLog(type, message) {
+            const messageLog = document.getElementById('message-log');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            const messageItem = document.createElement('div');
+            messageItem.className = `message-item ${type}`;
+            messageItem.innerHTML = `
+                <span class="timestamp">${timestamp}</span>
+                <span class="content">${message}</span>
+            `;
+            
+            // Add to top
+            messageLog.insertBefore(messageItem, messageLog.firstChild);
+            
+            // Keep only last 20 messages
+            while (messageLog.children.length > 20) {
+                messageLog.removeChild(messageLog.lastChild);
+            }
+        }
+
+        function startStatusRefresh() {
+            if (statusRefreshInterval) clearInterval(statusRefreshInterval);
+            
+            statusRefreshInterval = setInterval(async () => {
+                if (streamingActive) {
+                    await refreshStreamingStatus();
+                }
+            }, 10000); // Refresh every 10 seconds
+        }
+
+        function stopStatusRefresh() {
+            if (statusRefreshInterval) {
+                clearInterval(statusRefreshInterval);
+                statusRefreshInterval = null;
+            }
+        }
     </script>
 </body>
 </html>

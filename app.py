@@ -710,6 +710,52 @@ def market_sentiment():
         print(f"💥 Exception in market sentiment analysis: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
+@app.route('/api/account-streaming', methods=['GET', 'POST'])
+def account_streaming():
+    """API endpoint for managing account streaming"""
+    try:
+        token = session.get('access_token')
+        if not token:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        if request.method == 'GET':
+            # Get streaming status
+            from account_streamer import get_streamer_status
+            status = get_streamer_status()
+            return jsonify({
+                'success': True,
+                'status': status
+            })
+            
+        elif request.method == 'POST':
+            # Control streaming (start/stop)
+            data = request.get_json() or {}
+            action = data.get('action', 'status')  # 'start', 'stop', 'status'
+            
+            if action == 'start':
+                from account_streamer import start_global_streamer
+                result = start_global_streamer(token)
+                return jsonify({
+                    'success': result['success'],
+                    'message': result['message'],
+                    'status': result.get('status', {})
+                })
+                
+            elif action == 'stop':
+                from account_streamer import stop_global_streamer
+                result = stop_global_streamer()
+                return jsonify({
+                    'success': result['success'],
+                    'message': result['message']
+                })
+                
+            else:
+                return jsonify({'error': 'Invalid action'}), 400
+            
+    except Exception as e:
+        print(f"💥 Exception in account streaming: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
 @app.route('/api/latest-trade-recommendation')
 def get_latest_trade_recommendation():
     """API endpoint to get the latest trade recommendation"""
