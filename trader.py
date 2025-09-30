@@ -28,12 +28,12 @@ import config
 def get_current_account_number():
     """Get account number from TastyTrade API - Environment Aware"""
     try:
-        # First check if we have a sandbox account number configured
-        if config.TT_TRADING_ACCOUNT_NUMBER:
-            print(f"🏦 Using configured account number: {config.TT_TRADING_ACCOUNT_NUMBER} ({config.TRADING_MODE})")
-            return config.TT_TRADING_ACCOUNT_NUMBER
+        # First check if we have an account number configured for current environment
+        if config.TT_ACCOUNT_NUMBER:
+            print(f"🏦 Using configured account number: {config.TT_ACCOUNT_NUMBER} ({config.ENVIRONMENT_NAME})")
+            return config.TT_ACCOUNT_NUMBER
             
-        # If not configured, try to fetch from API using environment-aware trading API
+        # If not configured, try to fetch from API using unified environment API
         trading_api = TastyTradeAPI()
         headers = trading_api.get_trading_headers()
         
@@ -60,45 +60,31 @@ def get_current_account_number():
         return None
 
 class TradingEnvironmentManager:
-    """Manages dual environment context for data vs trading operations"""
+    """Manages unified environment context for all operations"""
     
     @staticmethod
-    def get_data_context():
-        """Get context for market data operations (always production)"""
+    def get_environment_context():
+        """Get context for current environment (Local=Sandbox, Railway=Production)"""
         return {
-            'base_url': config.TT_DATA_BASE_URL,
-            'api_key': config.TT_DATA_API_KEY,
-            'api_secret': config.TT_DATA_API_SECRET,
-            'purpose': 'DATA_GATHERING',
-            'environment': 'PRODUCTION'
-        }
-    
-    @staticmethod
-    def get_trading_context():
-        """Get context for trading operations (environment-dependent)"""
-        return {
-            'base_url': config.TT_TRADING_BASE_URL,
-            'api_key': config.TT_TRADING_API_KEY,
-            'api_secret': config.TT_TRADING_API_SECRET,
-            'account_number': config.TT_TRADING_ACCOUNT_NUMBER,
-            'username': config.TT_TRADING_USERNAME,
-            'password': config.TT_TRADING_PASSWORD,
-            'purpose': 'ORDER_EXECUTION',
-            'environment': config.TRADING_MODE
+            'base_url': config.TT_BASE_URL,
+            'api_key': config.TT_API_KEY,
+            'api_secret': config.TT_API_SECRET,
+            'account_number': config.TT_ACCOUNT_NUMBER,
+            'username': config.TT_USERNAME,
+            'password': config.TT_PASSWORD,
+            'environment': config.ENVIRONMENT_NAME
         }
     
     @staticmethod
     def log_environment_info():
-        """Log the current dual environment configuration"""
-        data_ctx = TradingEnvironmentManager.get_data_context()
-        trading_ctx = TradingEnvironmentManager.get_trading_context()
+        """Log the current unified environment configuration"""
+        ctx = TradingEnvironmentManager.get_environment_context()
         
-        logger.info("🏗️ Dual Environment Configuration:")
-        logger.info(f"📊 Data Gathering: {data_ctx['base_url']} ({data_ctx['environment']})")
-        logger.info(f"🎯 Order Trading: {trading_ctx['base_url']} ({trading_ctx['environment']})")
-        logger.info(f"🔄 Architecture: Data(Production) + Trading({trading_ctx['environment']})")
+        logger.info("🏗️ Unified Environment Configuration:")
+        logger.info(f"🎯 All Operations: {ctx['base_url']} ({ctx['environment']})")
+        logger.info(f"🔄 Architecture: Unified {ctx['environment']} Environment")
         
-        return data_ctx, trading_ctx
+        return ctx
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -312,21 +298,21 @@ class SpreadTradeBuilder:
         )
 
 class TastyTradeAPI:
-    """TastyTrade API integration for TRADING (uses environment-specific config)"""
+    """TastyTrade API integration using unified environment configuration"""
     
     def __init__(self):
-        # Use trading-specific configuration (sandbox in dev, production in prod)
-        self.base_url = config.TT_TRADING_BASE_URL
-        self.api_key = config.TT_TRADING_API_KEY
-        self.api_secret = config.TT_TRADING_API_SECRET
-        self.account_number = config.TT_TRADING_ACCOUNT_NUMBER
-        self.trading_mode = config.TRADING_MODE
+        # Use unified configuration for current environment
+        self.base_url = config.TT_BASE_URL
+        self.api_key = config.TT_API_KEY
+        self.api_secret = config.TT_API_SECRET
+        self.account_number = config.TT_ACCOUNT_NUMBER
+        self.environment = config.ENVIRONMENT_NAME
         
-        # Trading-specific session token (separate from data gathering)
+        # Session token for current environment
         self.trading_token = None
         
-        logger.info(f"🎯 TastyTrade Trading API initialized in {self.trading_mode} mode")
-        logger.info(f"🔗 Trading Base URL: {self.base_url}")
+        logger.info(f"🎯 TastyTrade API initialized in {self.environment} mode")
+        logger.info(f"🔗 Base URL: {self.base_url}")
         
     def get_trading_headers(self) -> Dict[str, str]:
         """Get authenticated headers for TRADING API requests"""
@@ -458,14 +444,13 @@ class TastyTradeAPI:
             traceback.print_exc()
             return None
 
-def test_dual_environment_system():
-    """Test the dual environment system and order submission"""
+def test_unified_environment_system():
+    """Test the unified environment system and order submission"""
     
-    print("🏗️ Testing Dual Environment Architecture")
+    print("🏗️ Testing Unified Environment Architecture")
     print("=" * 60)
-    print(f"🌍 Environment: {config.TRADING_MODE}")
-    print(f"📊 Data API: {config.TT_DATA_BASE_URL}")
-    print(f"🎯 Trading API: {config.TT_TRADING_BASE_URL}")
+    print(f"🌍 Environment: {config.ENVIRONMENT_NAME}")
+    print(f"🎯 Unified API: {config.TT_BASE_URL}")
     print()
     
     # Test Grok parsing
@@ -554,9 +539,9 @@ def test_dual_environment_system():
         traceback.print_exc()
 
 def test_grok_parsing():
-    """Legacy test function - use test_dual_environment_system() instead"""
-    test_dual_environment_system()
+    """Legacy test function - use test_unified_environment_system() instead"""
+    test_unified_environment_system()
 
 if __name__ == "__main__":
-    # Run the comprehensive dual environment test
-    test_dual_environment_system()
+    # Run the comprehensive unified environment test
+    test_unified_environment_system()

@@ -133,27 +133,34 @@
 <body>
     <div class="login-container">
         <div class="login-header">
-            <h1>🎯 SPY Trading Dashboard</h1>
-            <p>Professional Trading Interface</p>
+            <h1>SPY Trading Dashboard</h1>
+            <p>{{ environment }} Environment</p>
         </div>
-        
+
         <div class="login-body">
             <div class="spy-logo">SPY</div>
             
             <h2 style="margin-bottom: 10px; color: #2c3e50;">Welcome Back</h2>
             <p class="login-description">
-                Connect your TastyTrade account to access real-time market data, 
-                advanced analytics, and automated trading strategies.
+                Connect your TastyTrade account to access 
+                {% if environment == 'SANDBOX' %}
+                sandbox market data and test trading strategies.
+                {% else %}
+                real-time market data and live trading strategies.
+                {% endif %}
             </p>
             
             <a href="/login" class="login-btn">
-                🔐 Login with TastyTrade
-            </a>
-            
+                🔐 Login with TastyTrade {{ environment }}
+            </a>            
             <div class="features">
                 <div class="feature">
                     <div class="feature-icon">✓</div>
+                    {% if environment == 'SANDBOX' %}
+                    Sandbox SPY market data
+                    {% else %}
                     Real-time SPY market data
+                    {% endif %}
                 </div>
                 <div class="feature">
                     <div class="feature-icon">✓</div>
@@ -161,17 +168,25 @@
                 </div>
                 <div class="feature">
                     <div class="feature-icon">✓</div>
+                    {% if environment == 'SANDBOX' %}
+                    Safe testing environment
+                    {% else %}
                     Risk management tools
+                    {% endif %}
                 </div>
                 <div class="feature">
                     <div class="feature-icon">✓</div>
+                    {% if environment == 'SANDBOX' %}
+                    Paper trading assistant
+                    {% else %}
                     Automated trading assistant
+                    {% endif %}
                 </div>
             </div>
         </div>
         
         <div class="footer">
-            Powered by TastyTrade API • Secure OAuth2 Authentication
+            Powered by TastyTrade API • Secure OAuth2 Authentication • {{ environment }} Environment
         </div>
     </div>
 </body>

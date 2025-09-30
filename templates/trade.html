@@ -14,36 +14,30 @@
     <!-- Authentication Status Panel -->
     <div class="auth-panel">
         <div class="auth-section">
-            <h3>🏭 Production Authentication</h3>
-            <div class="auth-status {{ 'authenticated' if prod_authenticated else 'not-authenticated' }}">
-                {% if prod_authenticated %}
-                    ✅ Connected to Production (Data Only)
+            <h3>🔐 {{ environment }} Environment Authentication</h3>
+            <div class="auth-status {{ 'authenticated' if authenticated else 'not-authenticated' }}">
+                {% if authenticated %}
+                    ✅ Connected to {{ environment }}
+                    {% if environment == 'SANDBOX' %}
+                        (Trading Enabled)
+                    {% else %}
+                        (Production Mode)
+                    {% endif %}
                 {% else %}
-                    ❌ Not Connected
-                {% endif %}
-            </div>
-        </div>
-
-        <div class="auth-section">
-            <h3>🧪 Sandbox Authentication</h3>
-            <div class="auth-status {{ 'authenticated' if sandbox_authenticated else 'not-authenticated' }}">
-                {% if sandbox_authenticated %}
-                    ✅ Connected to Sandbox (Trading Enabled)
-                {% else %}
-                    ❌ Not Connected
+                    ❌ Not Connected to {{ environment }}
                 {% endif %}
             </div>
         </div>
         
-        {% if not sandbox_authenticated %}
+        {% if not authenticated %}
             <div class="auth-warning">
-                ⚠️ Connect to sandbox to enable trading functionality
+                ⚠️ Connect to {{ environment.lower() }} to enable trading functionality
             </div>
         {% endif %}
     </div>
 
-    <!-- Sandbox Authentication Panel (if not authenticated) -->
-    {% if sandbox_authenticated %}
+    <!-- Authentication Panel (if not authenticated) -->
+    {% if authenticated %}
         <!-- Trade data display when authenticated -->
     {% endif %}
 
@@ -139,13 +133,13 @@
 
             <!-- Trade Actions -->
             <div class="trade-actions">
-                {% if sandbox_authenticated %}
+                {% if authenticated %}
                     <button id="validateTradeBtn" class="btn btn-secondary">🔍 Validate Trade</button>
                     <button id="executeTradeBtn" class="btn btn-primary">🚀 Execute Trade</button>
                 {% else %}
                     <div class="auth-required">
-                        <p>🔐 Sandbox authentication required for trading</p>
-                        <button class="btn btn-outline">Connect to Sandbox</button>
+                        <p>🔐 {{ environment }} authentication required for trading</p>
+                        <button class="btn btn-outline" onclick="window.location.href='/login'">Connect to {{ environment }}</button>
                     </div>
                 {% endif %}
             </div>

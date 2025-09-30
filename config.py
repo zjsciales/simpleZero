@@ -64,7 +64,7 @@ if IS_PRODUCTION:
     TT_API_KEY = os.getenv('TT_API_KEY')
     TT_API_SECRET = os.getenv('TT_API_SECRET')
     TT_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
-    TT_OAUTH_BASE_URL = 'https://developer.tastyworks.com'
+    TT_OAUTH_BASE_URL = 'https://api.tastyworks.com'  # OAuth uses same base as API
     TT_ACCOUNT_NUMBER = None  # Will be fetched dynamically in production
     TT_USERNAME = None
     TT_PASSWORD = None
@@ -74,7 +74,7 @@ else:
     TT_API_KEY = os.getenv('TT_API_KEY_SANDBOX')
     TT_API_SECRET = os.getenv('TT_API_SECRET_SANDBOX')
     TT_BASE_URL = os.getenv('TT_SANDBOX_BASE_URL', 'https://api.cert.tastyworks.com')
-    TT_OAUTH_BASE_URL = 'https://developer.cert.tastyworks.com'
+    TT_OAUTH_BASE_URL = 'https://api.cert.tastyworks.com'  # OAuth uses same base as API
     TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER_SANDBOX')
     TT_USERNAME = os.getenv('TT_USERNAME_SANDBOX')
     TT_PASSWORD = os.getenv('TT_PASSWORD_SANDBOX')
@@ -87,9 +87,10 @@ print(f"🔐 OAuth Base: {TT_OAUTH_BASE_URL}")
 # API CREDENTIALS
 # =============================================================================
 
-# TastyTrade (tt) API
-TT_API_KEY = os.getenv('TT_API_KEY')
-TT_API_SECRET = os.getenv('TT_API_SECRET')
+# TastyTrade API credentials are set above based on environment (production vs sandbox)
+# TT_API_KEY, TT_API_SECRET, TT_BASE_URL are configured in the environment-specific section
+
+# Legacy endpoint references (for any code that still uses these)
 TT_API_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')  # Production endpoint
 TT_SANDBOX_BASE_URL = "https://api.cert.tastyworks.com"  # Sandbox endpoint
 

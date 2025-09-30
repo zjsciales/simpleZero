@@ -62,7 +62,9 @@ def home():
     if token:
         return redirect('/dashboard')
     else:
-        return render_template('login.html')
+        return render_template('login.html', 
+                             environment=config.ENVIRONMENT_NAME,
+                             oauth_base_url=config.TT_OAUTH_BASE_URL)
 
 @app.route('/dashboard')
 def dashboard():
@@ -73,7 +75,9 @@ def dashboard():
     
     # Ensure tt.py has the token
     set_access_token(token)
-    return render_template('dashboard.html')
+    return render_template('dashboard.html',
+                         environment=config.ENVIRONMENT_NAME,
+                         authenticated=True)
 
 @app.route('/login')
 def login():
@@ -250,6 +254,11 @@ def api_options_chain():
         print(f"  - Has access_token: {'access_token' in session}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
         
+        # Check authentication first
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Authentication required'}), 401
+        
         if 'access_token' in session:
             token_preview = session['access_token'][:20] + '...' if len(session['access_token']) > 20 else session['access_token']
             print(f"  - Token preview: {token_preview}")
@@ -343,6 +352,11 @@ def api_available_dtes():
 def debug_options():
     """Debug endpoint to inspect raw options data"""
     try:
+        # Check authentication first
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Authentication required'}), 401
+        
         print("🔧 Debug options endpoint called")
         ticker = request.args.get('ticker', 'SPY')
         
@@ -417,6 +431,11 @@ def api_trading_range():
         print(f"  - Has access_token: {'access_token' in session}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
         
+        # Check authentication first
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Authentication required'}), 401
+        
         # Set tokens in tt.py module
         print("🔄 Setting tokens in tt.py module")
         if 'access_token' in session:
@@ -464,6 +483,11 @@ def api_options_by_date():
         print("🔍 Flask session check:")
         print(f"  - Has access_token: {'access_token' in session}")
         print(f"  - Has refresh_token: {'refresh_token' in session}")
+        
+        # Check authentication first
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Authentication required'}), 401
         
         # Set tokens in tt.py module
         print("🔄 Setting tokens in tt.py module")
@@ -800,6 +824,11 @@ def trade_page():
 def data_management():
     """Data management dashboard to view persistent storage"""
     try:
+        # Check authentication first
+        token = session.get('access_token')
+        if not token:
+            return redirect('/login')
+        
         # Get session ID
         session_id = get_user_session_id()
         
@@ -833,7 +862,9 @@ def data_management():
             session_id=session_id,
             user_id=user_id,
             last_active=user_info['last_active'] if user_info else 'Unknown',
-            stored_data=stored_data
+            stored_data=stored_data,
+            environment=config.ENVIRONMENT_NAME,
+            authenticated=True
         )
         
     except Exception as e:

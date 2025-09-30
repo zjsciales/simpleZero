@@ -378,9 +378,9 @@ def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
     print(f"🔍 Checking available DTEs for {ticker}...")
     
     try:
-        # Get the raw options chain from TastyTrade API using production endpoint
+        # Get the raw options chain from TastyTrade API using unified environment-based endpoint
         import config
-        base_url = config.TT_API_BASE_URL if hasattr(config, 'TT_API_BASE_URL') else 'https://api.tastyworks.com'
+        base_url = config.TT_BASE_URL  # Use unified environment-aware URL
         options_url = f"{base_url}/option-chains/{ticker}"
         
         headers = get_authenticated_headers()
@@ -388,6 +388,8 @@ def get_available_dtes(ticker: str) -> List[Dict[str, Any]]:
             print("❌ No authentication available for options chain")
             return []
             
+        print(f"🔗 Calling: {options_url}")
+        print(f"🌍 Environment: {config.ENVIRONMENT_NAME}")
         response = requests.get(options_url, headers=headers)
         print(f"📡 Response Status: {response.status_code}")
         

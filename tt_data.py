@@ -108,13 +108,13 @@ class TastyTradeMarketData:
             # Use explicit override
             is_production = use_production if use_production is not None else not use_sandbox
         
-        # Set the appropriate base URL
-        self.base_url = config.TT_PROD_BASE_URL if is_production else config.TT_SANDBOX_BASE_URL
-        self.is_production = is_production
+        # Use unified configuration
+        self.base_url = config.TT_BASE_URL  # Unified environment-aware URL
+        self.is_production = config.IS_PRODUCTION
         self.logger = logging.getLogger(__name__)
         
         # Log which environment we're using
-        env_name = "PRODUCTION" if is_production else "SANDBOX"
+        env_name = config.ENVIRONMENT_NAME
         self.logger.info(f"TastyTradeMarketData initialized with {env_name} API: {self.base_url}")
         
     def get_authenticated_headers(self) -> dict:

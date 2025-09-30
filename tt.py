@@ -10,23 +10,23 @@ import config
 # Load environment variables
 load_dotenv()
 
-# TastyTrade API credentials (Production)
-TT_API_KEY = os.getenv('TT_API_KEY')
-TT_API_SECRET = os.getenv('TT_API_SECRET')
-TT_BASE_URL = os.getenv('TT_API_BASE_URL', 'https://api.tastyworks.com')
-TT_ACCOUNT_NUMBER = os.getenv('TT_ACCOUNT_NUMBER')
-TT_USERNAME = os.getenv('TT_USERNAME')
-TT_PASSWORD = os.getenv('TT_PASSWORD')
+# Use unified configuration from config.py
+TT_API_KEY = config.TT_API_KEY
+TT_API_SECRET = config.TT_API_SECRET
+TT_BASE_URL = config.TT_BASE_URL  # Use unified environment-based URL
+TT_ACCOUNT_NUMBER = config.TT_ACCOUNT_NUMBER
+TT_USERNAME = config.TT_USERNAME
+TT_PASSWORD = config.TT_PASSWORD
 
 # Use environment-aware redirect URI from config
 TT_REDIRECT_URI = config.TT_REDIRECT_URI
 
-# OAuth2 settings for TastyTrade
-TT_OAUTH_BASE_URL = TT_BASE_URL  # Use same base URL as API calls
+# OAuth2 settings for TastyTrade using unified config
+TT_OAUTH_BASE_URL = config.TT_OAUTH_BASE_URL  # Use unified OAuth base URL
 TT_CLIENT_ID = TT_API_KEY  # Using API key as client ID for OAuth2
 TT_CLIENT_SECRET = TT_API_SECRET  # Using API secret as client secret
 
-print(f"🔧 TT Module - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
+print(f"🔧 TT Module - Environment: {config.ENVIRONMENT_NAME}")
 print(f"🔧 TT Module - Redirect URI: {TT_REDIRECT_URI}")
 print(f"🔑 TT Module - API Key loaded: {TT_API_KEY[:10]}..." if TT_API_KEY else "❌ TT Module - No API Key loaded")
 print(f"🔑 TT Module - API Secret loaded: {TT_API_SECRET[:10]}..." if TT_API_SECRET else "❌ TT Module - No API Secret loaded")
@@ -191,7 +191,8 @@ def get_oauth_authorization_url():
     print(f"🔑 Client ID: {TT_CLIENT_ID[:10]}..." if TT_CLIENT_ID else "❌ No Client ID")
     print(f"🔄 Redirect URI: {TT_REDIRECT_URI}")
     print(f"🌐 Base URL: {TT_BASE_URL}")
-    print(f"🏭 Using production credentials: {'Yes' if TT_CLIENT_ID and TT_CLIENT_ID != 'your_tastytrade_api_key' else 'No'}")
+    print(f"�️ Environment: {config.ENVIRONMENT_NAME}")
+    print(f"�🏭 Using production API: {'Yes' if config.IS_PRODUCTION else 'No'}")
     
     params = {
         'client_id': TT_CLIENT_ID,
@@ -200,28 +201,15 @@ def get_oauth_authorization_url():
         'scope': 'read trade openid'  # Valid scopes per documentation (removed state parameter)
     }
     
-    # Use the correct TastyTrade authorization endpoint from documentation
-    # According to docs: https://my.tastytrade.com/auth.html (Production)
-    # Check if we have production credentials (not placeholder values)
-    using_production_creds = (TT_CLIENT_ID and 
-                             TT_CLIENT_ID != 'your_tastytrade_api_key' and 
-                             "api.tastyworks.com" in TT_BASE_URL)
-    
-    if using_production_creds:
-        # Production authorization endpoint per TastyTrade documentation
-        base_url = "https://my.tastytrade.com/auth.html"
-        print(f"🎯 Using production auth endpoint: {base_url}")
+    # Use the correct TastyTrade OAuth authorization endpoints from documentation
+    # Production: https://my.tastyworks.com/auth.html
+    # Sandbox: https://cert-my.staging-tasty.works/auth.html
+    if config.IS_PRODUCTION:
+        base_url = "https://my.tastyworks.com/auth.html"
     else:
-        # ERROR: This should never happen now - let's see what's going wrong
-        print(f"❌ FALLBACK TRIGGERED - This shouldn't happen!")
-        print(f"   TT_CLIENT_ID: '{TT_CLIENT_ID}'")
-        print(f"   TT_CLIENT_ID != placeholder: {TT_CLIENT_ID != 'your_tastytrade_api_key'}")
-        print(f"   TT_BASE_URL: '{TT_BASE_URL}'")
-        print(f"   api.tastyworks.com in base: {'api.tastyworks.com' in TT_BASE_URL}")
-        
-        # Force production endpoint anyway
-        base_url = "https://my.tastytrade.com/auth.html"
-        print(f"🔧 FORCING production auth endpoint: {base_url}")
+        base_url = "https://cert-my.staging-tasty.works/auth.html"
+    
+    print(f"🎯 Using {config.ENVIRONMENT_NAME} OAuth authorization endpoint: {base_url}")
     
     query_string = urllib.parse.urlencode(params)
     auth_url = f"{base_url}?{query_string}"
@@ -1794,6 +1782,8 @@ def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
     Dict with 'success' boolean and 'symbols' list
     """
     print(f"📋 Fetching compact options chain for {ticker}...")
+    print(f"🌍 Environment: {config.ENVIRONMENT_NAME}")
+    print(f"🔗 Base URL: {TT_BASE_URL}")
     
     try:
         # Get authentication headers
@@ -1802,12 +1792,33 @@ def get_compact_options_chain(ticker: str) -> Dict[str, Any]:
             print("❌ No access token available")
             return {'success': False, 'symbols': []}
         
+        # Log the exact URL and headers for debugging
         url = f"{TT_BASE_URL}/option-chains/{ticker}/compact"
-        
         print(f"🔗 Calling: {url}")
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        print(f"� Headers: {{'Authorization': 'Bearer [REDACTED]', 'Content-Type': 'application/json'}}")
         
+        response = requests.get(url, headers=headers)
+        print(f"📡 Response Status: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"❌ Failed to fetch compact options chain: {response.text}")
+            
+            # Try the non-compact endpoint as fallback for sandbox
+            if not config.IS_PRODUCTION:
+                print("🔄 Trying non-compact endpoint for sandbox...")
+                fallback_url = f"{TT_BASE_URL}/option-chains/{ticker}"
+                fallback_response = requests.get(fallback_url, headers=headers)
+                print(f"📡 Fallback Response Status: {fallback_response.status_code}")
+                
+                if fallback_response.status_code == 200:
+                    print("✅ Fallback endpoint worked, processing non-compact data...")
+                    # Process the full options chain response
+                    data = fallback_response.json()
+                    return {'success': True, 'symbols': [], 'raw_data': data}
+            
+            return {'success': False, 'symbols': []}
+        
+        response.raise_for_status()
         data = response.json()
         
         print(f"🔍 Checking compact response structure...")
