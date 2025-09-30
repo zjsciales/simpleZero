@@ -1032,6 +1032,22 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     dte_display = dte_summary.get('display_name', f'{dte}DTE')
     current_time = market_data.get('timestamp', {}).get('market_time', '10:00:00 EST')
     
+    # Get DTE-specific configuration for technical analysis
+    dte_config = market_data.get('dte_config', {})
+    if not dte_config:
+        # Import dte_manager to get configuration if not in market_data
+        try:
+            import dte_manager
+            dte_manager_instance = dte_manager.dte_manager
+            dte_config = dte_manager_instance.get_dte_config(dte) if dte_manager_instance else {}
+        except ImportError:
+            dte_config = {'period': '1d', 'interval': '1m', 'data_points': 100}
+    
+    # Extract technical analysis timeframe information
+    tech_period = dte_config.get('period', '1d')
+    tech_interval = dte_config.get('interval', '1m')
+    tech_data_points = dte_config.get('data_points', 100)
+    
     # Enhanced technical analysis data from yfinance integration
     ticker_data = market_data.get('ticker_data', {})
     # Check both locations for technical indicators (new streamlined structure vs old structure)
@@ -1313,6 +1329,8 @@ You're an expert options trader analyzing {ticker} options for a {dte_display} t
 
 We need an actionable trade, don't be afraid to give real trade advice that we can use in the market today.  
 
+Current date and time is {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p EST')} and we're conducting analysis for {dte_display} options contracts which will expire on {expiry_context}.
+
 ---
 
 ## Market Overview
@@ -1330,19 +1348,21 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 - **Time Decay:** {time_decay_impact}
 - **Time Remaining:** {time_remaining}
 
-### Enhanced RSI Analysis
+### Enhanced RSI Analysis (Timeframe: {tech_period}, Interval: {tech_interval})
 - **Current RSI:** {rsi_data['current_rsi']:.1f} ({"Overbought" if rsi_data['current_rsi'] > 70 else "Oversold" if rsi_data['current_rsi'] < 30 else "Neutral"} territory)
 - **RSI Trend:** {rsi_data.get('trend', 'neutral').replace('_', ' ').title()}
 - **Data Source:** {rsi_data.get('data_source', 'Enhanced yfinance')}
+- **Analysis Period:** {tech_data_points} data points over {tech_period}
 
-### Enhanced Volatility Analysis
+### Enhanced Volatility Analysis (Timeframe: {tech_period}, Interval: {tech_interval})
 - **Bollinger Position:** {tech_data.get('bb_position', 0.5):.1%} (0%=Lower Band, 100%=Upper Band)
 - **Bollinger Width:** {tech_data.get('bb_width', 0):.2f}% ({"Squeeze" if tech_data.get('bb_width', 0) < 10 else "Expansion" if tech_data.get('bb_width', 0) > 25 else "Normal"})
 - **Upper Band:** ${tech_data.get('bb_upper', current_price):.2f}
 - **Lower Band:** ${tech_data.get('bb_lower', current_price):.2f}
 - **ATR (Volatility):** ${tech_data.get('atr', 0):.2f}
+- **Analysis Period:** {tech_data_points} data points over {tech_period}
 
-### Enhanced Trend Analysis  
+### Enhanced Trend Analysis (Timeframe: {tech_period}, Interval: {tech_interval})  
 - **SMA 20:** ${tech_data.get('sma_20', current_price):.2f} ({"Above" if current_price > tech_data.get('sma_20', current_price) else "Below" if current_price < tech_data.get('sma_20', current_price) else "At"} current price)
 - **SMA 50:** ${tech_data.get('sma_50', current_price):.2f} ({"Bullish" if tech_data.get('sma_20', current_price) > tech_data.get('sma_50', current_price) else "Bearish" if tech_data.get('sma_20', current_price) < tech_data.get('sma_50', current_price) else "Neutral"} crossover)
 - **EMA 10:** ${tech_data.get('ema_10', current_price):.2f}
