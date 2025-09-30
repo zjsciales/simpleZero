@@ -1218,27 +1218,54 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     # Calculate proper time remaining
     time_remaining = calculate_market_time_remaining(dte)
     
+    # Calculate actual expiration date for better context
+    def calculate_expiration_date(dte):
+        """Calculate the actual expiration date based on DTE"""
+        try:
+            import pytz
+            et_tz = pytz.timezone('US/Eastern')
+            now_et = datetime.now(et_tz)
+            
+            if dte == 0:
+                # Same day expiration
+                expiry_date = now_et
+            elif dte == 1:
+                # Next trading day
+                expiry_date = now_et + timedelta(days=1)
+            else:
+                # For options, typically expire on Fridays, but for simplicity, add DTE days
+                # In a real implementation, this would use trading calendar
+                expiry_date = now_et + timedelta(days=dte)
+            
+            return expiry_date.strftime('%A, %B %d, %Y')
+        except Exception as e:
+            logging.warning(f"Error calculating expiration date: {e}")
+            return f"in {dte} days"
+    
+    # Get formatted expiration date
+    formatted_expiry_date = calculate_expiration_date(dte)
+    
     if dte == 0:
         time_message = f"Current time: {current_time} (same-day expiration)"
-        expiry_context = "Today at 4:00 PM ET"
+        expiry_context = f"Today ({formatted_expiry_date}) at 4:00 PM ET"
         time_decay_impact = "Very High (rapid decay)"
         strategy_focus = "Quick directional moves or high-probability neutral plays"
         risk_profile = "Minimize overnight risk, focus on intraday momentum"
     elif dte == 1:
         time_message = f"Current time: {current_time} (next-day expiration)"
-        expiry_context = "Tomorrow at 4:00 PM ET"
+        expiry_context = f"Tomorrow ({formatted_expiry_date}) at 4:00 PM ET"
         time_decay_impact = "High (overnight decay + one day)"
         strategy_focus = "Balance time decay with directional opportunity"
         risk_profile = "Moderate risk, account for overnight events"
     elif dte <= 3:
         time_message = f"Current time: {current_time} ({dte}-day expiration)"
-        expiry_context = f"{dte} days until expiration"
+        expiry_context = f"{formatted_expiry_date} at 4:00 PM ET"
         time_decay_impact = "Moderate (multiple days of decay)"
         strategy_focus = "Directional plays with time for position management"
         risk_profile = f"Higher risk tolerance acceptable, {dte}x time buffer"
     else:
         time_message = f"Current time: {current_time} ({dte}-day expiration)"
-        expiry_context = f"{dte} days until expiration" 
+        expiry_context = f"{formatted_expiry_date} at 4:00 PM ET"
         time_decay_impact = "Lower (weekly+ timeframe)"
         strategy_focus = "Longer-term directional plays and wider spreads"
         risk_profile = f"Full range strategies, {dte}-day development time"
