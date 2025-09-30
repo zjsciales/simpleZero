@@ -230,16 +230,17 @@ Please be concise and timely - respond quickly with focused, actionable intellig
             print(f"❌ Error in market sentiment analysis: {e}")
             return None
     
-    def send_analysis_request(self, ticker, dte):
+    def send_analysis_request(self, ticker, dte, include_sentiment=True):
         """
-        High-level method to perform comprehensive market analysis
+        High-level method to perform comprehensive market analysis with integrated sentiment
         
         Parameters:
         ticker: Stock ticker symbol
         dte: Days to expiration
+        include_sentiment: Whether to include market sentiment analysis (default True)
         
         Returns:
-        Grok AI analysis response
+        Dictionary with both sentiment and trading analysis
         """
         print(f"🔍 Starting comprehensive analysis for {ticker} {dte}DTE...")
         
@@ -252,17 +253,27 @@ Please be concise and timely - respond quickly with focused, actionable intellig
         
         print(f"📋 Generating comprehensive v7 prompt...")
         
-        # Generate the comprehensive prompt
-        prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
+        # Generate the comprehensive prompt (sentiment will be integrated automatically if include_sentiment=True)
+        prompt = format_market_analysis_prompt_v7_comprehensive(market_data, include_sentiment=include_sentiment)
         
         print(f"✅ Generated {len(prompt)} character prompt")
         print(f"🔍 Prompt validation:")
         print(f"   - Contains 'expert options trader': {'expert options trader' in prompt}")
         print(f"   - Contains 'JSON package': {'JSON package' in prompt}")
         print(f"   - Contains strategy options: {'BULL_PUT_SPREAD' in prompt and 'BEAR_CALL_SPREAD' in prompt}")
+        print(f"   - Contains sentiment analysis: {'Market Sentiment Analysis' in prompt}")
         
         # Send to Grok
-        return self.send_to_grok(prompt)
+        trading_analysis = self.send_to_grok(prompt)
+        
+        # Return comprehensive result
+        return {
+            'success': True if trading_analysis else False,
+            'trading_analysis': trading_analysis,
+            'market_data': market_data,
+            'prompt_length': len(prompt),
+            'includes_sentiment': include_sentiment and 'Market Sentiment Analysis' in prompt
+        }
 def get_comprehensive_market_data(ticker=None, dte=None, include_full_options_chain=False):
     """
     Gather all available market data for comprehensive analysis using streamlined TastyTrade data

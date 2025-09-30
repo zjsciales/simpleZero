@@ -620,36 +620,29 @@ def grok_analysis():
         data = request.get_json() or {}
         dte = data.get('dte', 0)
         ticker = data.get('ticker', 'SPY')
+        include_sentiment = data.get('include_sentiment', True)  # Default to including sentiment
         
-        print(f"🤖 Starting Grok analysis for {ticker} {dte}DTE")
+        print(f"🤖 Starting integrated Grok analysis for {ticker} {dte}DTE (sentiment: {include_sentiment})")
         
         # Create GrokAnalyzer
         analyzer = GrokAnalyzer()
         
-        # Get comprehensive market data
-        print(f"📊 Gathering comprehensive market data for {ticker} {dte}DTE...")
-        market_data = get_comprehensive_market_data(ticker=ticker, dte=dte, include_full_options_chain=True)
+        # Use the new integrated analysis method
+        analysis_result = analyzer.send_analysis_request(ticker=ticker, dte=dte, include_sentiment=include_sentiment)
         
-        if not market_data:
-            return jsonify({'error': 'Failed to gather market data'}), 500
+        if not analysis_result or not analysis_result['success']:
+            return jsonify({'error': 'Failed to complete analysis'}), 500
         
-        # Generate comprehensive market analysis prompt using actual market data
-        from grok import format_market_analysis_prompt_v7_comprehensive
-        prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
-        
-        print(f"📤 Sending comprehensive market analysis prompt to Grok...")
-        print(f"� Prompt length: {len(prompt):,} characters")
-        grok_response = analyzer.send_to_grok(prompt)
-        
-        if grok_response:
-            print(f"✅ Grok analysis completed")
+        trading_analysis = analysis_result['trading_analysis']
+        if trading_analysis:
+            print(f"✅ Integrated Grok analysis completed")
             
             # Process and store the Grok response
             from trader_integration import process_grok_response
             user_session_id = session.get('session_id') or session.get('user_session_id')
             
             processing_result = process_grok_response(
-                grok_response=grok_response,
+                grok_response=trading_analysis,
                 ticker=ticker,
                 dte=dte,
                 session_id=user_session_id
@@ -657,12 +650,14 @@ def grok_analysis():
             
             return jsonify({
                 'success': True,
-                'analysis': grok_response,
+                'analysis': trading_analysis,
                 'ticker': ticker,
                 'dte': dte,
                 'processing_result': processing_result,
                 'trade_parsed': processing_result.get('success', False),
-                'parsed_trade': processing_result.get('parsed_trade') if processing_result.get('success') else None
+                'parsed_trade': processing_result.get('parsed_trade') if processing_result.get('success') else None,
+                'includes_sentiment': analysis_result['includes_sentiment'],
+                'prompt_length': analysis_result['prompt_length']
             })
         else:
             print(f"❌ Grok analysis failed")

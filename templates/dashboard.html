@@ -610,6 +610,16 @@
                         <div id="dte-error" class="error-message" style="display: none; color: #ff6b6b; font-size: 12px; margin-top: 5px;"></div>
                     </div>
                     
+                    <div class="control-group">
+                        <label class="control-label">
+                            <input type="checkbox" id="include-sentiment" checked style="margin-right: 8px;">
+                            Include Market Sentiment Analysis
+                        </label>
+                        <div style="font-size: 12px; color: #6c757d; margin-top: 5px;">
+                            Adds comprehensive market context to trading analysis (recommended)
+                        </div>
+                    </div>
+                    
                     <div class="control-group prompt-preview">
                         <label class="control-label">Generated Prompt Preview</label>
                         <div id="prompt-display" class="prompt-display">Loading prompt preview...</div>
@@ -621,7 +631,7 @@
                         🚀 Run Grok Analysis
                     </button>
                     <button onclick="runMarketSentiment()" id="sentiment-btn" class="btn btn-secondary">
-                        🌍 Market Sentiment
+                        🌍 Sentiment Only
                     </button>
                 </div>
                 
@@ -861,6 +871,7 @@
         async function analyzeMarket() {
             const ticker = document.getElementById('ticker').value.trim();
             const dte = document.getElementById('dte').value.trim();
+            const includeSentiment = document.getElementById('include-sentiment').checked;
             const resultDiv = document.getElementById('analysis-result');
             const analyzeBtn = document.getElementById('analyze-btn');
             
@@ -871,18 +882,25 @@
             
             try {
                 analyzeBtn.disabled = true;
-                analyzeBtn.textContent = 'Analyzing...';
+                analyzeBtn.textContent = includeSentiment ? 'Analyzing with Sentiment...' : 'Analyzing...';
                 
                 // Show result div and add loading message
                 resultDiv.style.display = 'block';
-                resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Analyzing market data with Grok AI...</div>';
+                const loadingMsg = includeSentiment ? 
+                    'Analyzing market sentiment and data with Grok AI...' : 
+                    'Analyzing market data with Grok AI...';
+                resultDiv.innerHTML = `<div class="loading"><div class="spinner"></div>${loadingMsg}</div>`;
                 
                 const response = await fetch('/api/grok-analysis', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ ticker, dte: parseInt(dte) })
+                    body: JSON.stringify({ 
+                        ticker, 
+                        dte: parseInt(dte),
+                        include_sentiment: includeSentiment
+                    })
                 });
                 
                 if (!response.ok) {
@@ -902,6 +920,15 @@
                     console.log('🔍 Trade signal condition (hasTradeSignal):', hasTradeSignal);
                     
                     resultDiv.innerHTML = `
+                        ${data.includes_sentiment ? `
+                            <div style="margin-bottom: 15px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px; font-size: 14px;">
+                                ✅ <strong>Enhanced Analysis:</strong> Includes market sentiment context (${data.prompt_length.toLocaleString()} characters)
+                            </div>
+                        ` : `
+                            <div style="margin-bottom: 15px; padding: 10px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; font-size: 14px;">
+                                📊 <strong>Standard Analysis:</strong> Technical & options data only (${data.prompt_length.toLocaleString()} characters)
+                            </div>
+                        `}
                         <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
                             ${data.analysis}
                         </div>
