@@ -89,6 +89,7 @@ class GrokAnalyzer:
         self.api_key = os.getenv('XAI_API_KEY')
         self.base_url = "https://api.x.ai/v1/chat/completions"
         self.model = "grok-4"
+        self.sentiment_cache = {}  # Cache for market sentiment analysis
         
         if not self.api_key:
             raise ValueError("XAI_API_KEY not found in environment variables")
@@ -129,12 +130,12 @@ class GrokAnalyzer:
             print(prompt[:500] + "..." if len(prompt) > 500 else prompt)
             print("-" * 50)
             
-            # Add timeout to prevent hanging - increased to 5 minutes for complex analysis
+            # Add timeout to prevent hanging - set to 3 minutes for balance of thoroughness and speed
             response = requests.post(
                 self.base_url, 
                 headers=headers, 
                 json=data,
-                timeout=300  # 5 minute timeout for comprehensive analysis
+                timeout=180  # 3 minute timeout for balanced analysis speed
             )
             
             print(f"📡 Response status: {response.status_code}")
@@ -163,6 +164,70 @@ class GrokAnalyzer:
             return None
         except Exception as e:
             print(f"❌ Unexpected error processing Grok response: {e}")
+            return None
+    
+    def get_market_sentiment_analysis(self, expiration_date, use_cache=True):
+        """
+        Get market sentiment analysis for a specific expiration date
+        
+        Parameters:
+        expiration_date: String in format "Friday, November 28, 2025"
+        use_cache: Whether to use cached results (default True)
+        
+        Returns:
+        Dictionary with sentiment analysis and timestamp
+        """
+        from datetime import datetime
+        
+        # Create cache key based on date (daily cache)
+        cache_date = datetime.now().strftime('%Y-%m-%d')
+        cache_key = f"{cache_date}_{expiration_date}"
+        
+        # Check cache first
+        if use_cache and cache_key in self.sentiment_cache:
+            cached_result = self.sentiment_cache[cache_key]
+            print(f"📋 Using cached market sentiment from {cached_result['timestamp']}")
+            return cached_result
+        
+        print(f"🌍 Requesting market sentiment analysis for {expiration_date}...")
+        
+        # Create sentiment analysis prompt
+        sentiment_prompt = f"""Hey Grok! You're an options trading expert who has been collecting income from call/put vertical spreads for many years. We need help analyzing opportunities for SPY expiring on {expiration_date}.
+
+Can you analyze market sentiment and give us a brief, pointed 500 word summary that includes:
+
+1. **Current Market Environment**: Overall sentiment and key macro themes affecting SPY
+2. **Major Market Events**: Significant events, earnings, Fed meetings, economic data releases affecting SPY through {expiration_date}
+3. **Technical Sentiment**: Key technical levels, trend analysis, and momentum indicators
+4. **Options Market Sentiment**: VIX levels, put/call ratios, and options flow patterns
+5. **Risk Factors**: Major risks or catalysts that could impact SPY before expiration
+
+Please be concise and timely - respond quickly with focused, actionable intelligence for options traders. Avoid generic market commentary and focus on actionable intelligence for SPY trading opportunities."""
+
+        try:
+            # Send sentiment request to Grok
+            sentiment_response = self.send_to_grok(sentiment_prompt, max_tokens=800)
+            
+            if sentiment_response:
+                # Create result with timestamp
+                result = {
+                    'sentiment_analysis': sentiment_response,
+                    'expiration_date': expiration_date,
+                    'timestamp': datetime.now().strftime('%A, %B %d, %Y at %I:%M %p EST'),
+                    'cache_key': cache_key
+                }
+                
+                # Cache the result
+                self.sentiment_cache[cache_key] = result
+                
+                print(f"✅ Market sentiment analysis completed and cached")
+                return result
+            else:
+                print(f"❌ Failed to get market sentiment analysis")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error in market sentiment analysis: {e}")
             return None
     
     def send_analysis_request(self, ticker, dte):
@@ -962,13 +1027,15 @@ def format_compact_options_table(options_list, option_type, current_price, greek
     
     return "\n".join(table_lines)
 
-def format_market_analysis_prompt_v7_comprehensive(market_data):
+def format_market_analysis_prompt_v7_comprehensive(market_data, include_sentiment=True):
     """
     Format market data into comprehensive DTE-aware v7 prompt for Grok AI analysis
     Combines the best of v4 (market context), v5 (behavioral data), v6 (options data) with DTE intelligence
+    Now includes market sentiment analysis for enhanced context
     
     Parameters:
     market_data: Dictionary from get_comprehensive_market_data()
+    include_sentiment: Whether to include market sentiment analysis (default True)
     
     Returns:
     Formatted comprehensive prompt string for AI analysis (DTE-aware)
@@ -1292,6 +1359,29 @@ def format_market_analysis_prompt_v7_comprehensive(market_data):
     support_level = current_price - base_range
     resistance_level = current_price + base_range
     
+    # Market Sentiment Analysis Integration (v7 Enhancement)
+    sentiment_section = ""
+    if include_sentiment:
+        try:
+            # Initialize Grok analyzer for sentiment analysis
+            grok_analyzer = GrokAnalyzer()
+            sentiment_data = grok_analyzer.get_market_sentiment_analysis(formatted_expiry_date)
+            
+            if sentiment_data:
+                sentiment_section = f"""
+## 🌍 Market Sentiment Analysis (Generated: {sentiment_data['timestamp']})
+
+{sentiment_data['sentiment_analysis']}
+
+---
+"""
+                print(f"✅ Market sentiment analysis included in prompt")
+            else:
+                print(f"⚠️ Market sentiment analysis not available, continuing without it")
+        except Exception as e:
+            print(f"⚠️ Error getting market sentiment analysis: {e}")
+            sentiment_section = ""
+    
     # Enhanced Greeks and Options Chain Analysis
     enhanced_greeks = get_enhanced_greeks_data(ticker=ticker, dte=dte, current_price=current_price)
     enhanced_options = get_enhanced_options_chain_data(ticker=ticker, dte=dte, current_price=current_price)
@@ -1358,7 +1448,7 @@ We need an actionable trade, don't be afraid to give real trade advice that we c
 
 Current date and time is {datetime.now().strftime('%A, %B %d, %Y at %I:%M %p EST')} and we're conducting analysis for {dte_display} options contracts which will expire on {expiry_context}.
 
----
+{sentiment_section}
 
 ## Market Overview
 - **{ticker}:** ${spy_price:.2f} ({spy_change:+.2f}%)
@@ -1589,6 +1679,68 @@ def main():
     
     print(f"\n🎯 DTE-aware v7 comprehensive analysis complete for {dte_display}!")
 
+def run_market_sentiment_analysis(dte: int = None, ticker: str = "SPY") -> dict:
+    """
+    Run standalone market sentiment analysis for the specified expiration
+    
+    Parameters:
+    dte: Days to expiration (uses current DTE if None)
+    ticker: Stock ticker (default SPY)
+    
+    Returns:
+    Dictionary with sentiment analysis results
+    """
+    print("🌍 Market Sentiment Analysis")
+    print("=" * 40)
+    
+    # Get DTE if not specified
+    if dte is None:
+        dte = get_current_dte()
+    
+    # Calculate expiration date
+    try:
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        expiry_date = today + timedelta(days=dte)
+        formatted_expiry_date = expiry_date.strftime('%A, %B %d, %Y')
+    except Exception as e:
+        print(f"❌ Error calculating expiration date: {e}")
+        return {'success': False, 'error': str(e)}
+    
+    # Initialize Grok analyzer
+    try:
+        grok_analyzer = GrokAnalyzer()
+        print("✅ Grok AI connection initialized")
+    except Exception as e:
+        print(f"❌ Failed to initialize Grok AI: {e}")
+        return {'success': False, 'error': f'Grok initialization failed: {e}'}
+    
+    # Get sentiment analysis
+    print(f"🌍 Running sentiment analysis for {ticker} expiring {formatted_expiry_date}...")
+    sentiment_result = grok_analyzer.get_market_sentiment_analysis(formatted_expiry_date)
+    
+    if sentiment_result:
+        print("✅ Market sentiment analysis complete!")
+        print("="*60)
+        print(f"MARKET SENTIMENT ANALYSIS ({ticker} - {dte}DTE):")
+        print("="*60)
+        print(f"📅 Expiration: {sentiment_result['expiration_date']}")
+        print(f"🕒 Generated: {sentiment_result['timestamp']}")
+        print("-"*60)
+        print(sentiment_result['sentiment_analysis'])
+        print("="*60)
+        
+        return {
+            'success': True,
+            'sentiment_data': sentiment_result,
+            'ticker': ticker,
+            'dte': dte,
+            'expiration_date': formatted_expiry_date
+        }
+    else:
+        print("❌ Failed to get market sentiment analysis")
+        return {'success': False, 'error': 'Sentiment analysis failed'}
+
 def run_automated_v7_analysis():
     """
     Run optimized v7 comprehensive analysis for automated trading integration
@@ -1637,8 +1789,67 @@ def run_automated_v7_analysis():
             'grok_response': None
         }
 
+def run_sentiment_only():
+    """
+    Run just the market sentiment analysis (useful for testing or standalone use)
+    """
+    import sys
+    
+    # Check for command line arguments
+    dte = None
+    if len(sys.argv) > 1:
+        try:
+            dte = int(sys.argv[1])
+        except ValueError:
+            print("Usage: python grok.py [DTE] or just python grok.py for current DTE")
+            return
+    
+    result = run_market_sentiment_analysis(dte=dte)
+    if result['success']:
+        print(f"\n🎯 Market sentiment analysis complete!")
+    else:
+        print(f"\n❌ Market sentiment analysis failed: {result['error']}")
+
 if __name__ == "__main__":
-    main()
+    import sys
+    
+    # Check for command line arguments
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--sentiment" or sys.argv[1] == "-s":
+            # Run sentiment analysis only
+            dte = None
+            if len(sys.argv) > 2:
+                try:
+                    dte = int(sys.argv[2])
+                except ValueError:
+                    print("Usage: python grok.py --sentiment [DTE]")
+                    sys.exit(1)
+            
+            print("🌍 Running Market Sentiment Analysis Only")
+            result = run_market_sentiment_analysis(dte=dte)
+            if not result['success']:
+                print(f"❌ Sentiment analysis failed: {result['error']}")
+                sys.exit(1)
+        elif sys.argv[1] == "--help" or sys.argv[1] == "-h":
+            print("Grok Market Analysis Tool")
+            print("=" * 30)
+            print("Usage:")
+            print("  python grok.py                    # Run full market analysis")
+            print("  python grok.py --sentiment [DTE]  # Run sentiment analysis only")
+            print("  python grok.py -s [DTE]           # Short form for sentiment")
+            print("  python grok.py --help             # Show this help")
+            print()
+            print("Examples:")
+            print("  python grok.py                    # Full analysis for current DTE")
+            print("  python grok.py --sentiment        # Sentiment for current DTE")
+            print("  python grok.py -s 7               # Sentiment for 7DTE")
+            sys.exit(0)
+        else:
+            print("Unknown argument. Use --help for usage information.")
+            sys.exit(1)
+    else:
+        # Run full analysis
+        main()
 
 
 # ============================================================================

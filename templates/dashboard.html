@@ -308,6 +308,15 @@
             background: #2980b9;
         }
 
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+
         .btn-success {
             background: #27ae60;
             color: white;
@@ -607,9 +616,12 @@
                     </div>
                 </div>
                 
-                <div style="margin-bottom: 25px;">
+                <div style="margin-bottom: 25px; display: flex; gap: 15px; flex-wrap: wrap;">
                     <button onclick="analyzeMarket()" id="analyze-btn" class="btn btn-primary">
                         🚀 Run Grok Analysis
+                    </button>
+                    <button onclick="runMarketSentiment()" id="sentiment-btn" class="btn btn-secondary">
+                        🌍 Market Sentiment
                     </button>
                 </div>
                 
@@ -925,6 +937,70 @@
             } finally {
                 analyzeBtn.disabled = false;
                 analyzeBtn.textContent = '🚀 Run Grok Analysis';
+            }
+        }
+
+        async function runMarketSentiment() {
+            const dte = document.getElementById('dte').value.trim();
+            const resultDiv = document.getElementById('analysis-result');
+            const sentimentBtn = document.getElementById('sentiment-btn');
+            
+            if (!dte) {
+                alert('Please enter DTE for sentiment analysis');
+                return;
+            }
+            
+            try {
+                sentimentBtn.disabled = true;
+                sentimentBtn.textContent = 'Analyzing...';
+                
+                // Show result div and add loading message
+                resultDiv.style.display = 'block';
+                resultDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Analyzing market sentiment with Grok AI...</div>';
+                
+                const response = await fetch('/api/market-sentiment', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ dte: parseInt(dte) })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 4px solid #6c757d;">
+                            <h3 style="color: #495057; margin-bottom: 15px;">🌍 Market Sentiment Analysis</h3>
+                            <div style="margin-bottom: 10px;">
+                                <strong>📅 Expiration:</strong> ${data.sentiment_data.expiration_date}
+                            </div>
+                            <div style="margin-bottom: 15px;">
+                                <strong>🕒 Generated:</strong> ${data.sentiment_data.timestamp}
+                            </div>
+                            <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6; border-top: 1px solid #dee2e6; padding-top: 15px;">
+                                ${data.sentiment_data.sentiment_analysis}
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Sentiment analysis failed');
+                }
+            } catch (error) {
+                console.error('Error analyzing sentiment:', error);
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h3>❌ Sentiment Analysis Error</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                sentimentBtn.disabled = false;
+                sentimentBtn.textContent = '🌍 Market Sentiment';
             }
         }
 

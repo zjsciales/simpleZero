@@ -672,6 +672,49 @@ def grok_analysis():
         print(f"💥 Exception in Grok analysis: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
+@app.route('/api/market-sentiment', methods=['POST'])
+def market_sentiment():
+    """API endpoint for market sentiment analysis"""
+    try:
+        token = session.get('access_token')
+        if not token:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Ensure tt.py has the token
+        set_access_token(token)
+        
+        # Import grok functions
+        try:
+            from grok import run_market_sentiment_analysis
+        except ImportError as e:
+            return jsonify({'error': f'Import error: {str(e)}'}), 500
+        
+        # Get request data
+        data = request.get_json() or {}
+        dte = data.get('dte', 0)
+        ticker = data.get('ticker', 'SPY')
+        
+        print(f"🌍 Starting market sentiment analysis for {ticker} {dte}DTE")
+        
+        # Run market sentiment analysis
+        result = run_market_sentiment_analysis(dte=dte, ticker=ticker)
+        
+        if result['success']:
+            print(f"✅ Market sentiment analysis completed")
+            return jsonify({
+                'success': True,
+                'sentiment_data': result['sentiment_data'],
+                'ticker': ticker,
+                'dte': dte
+            })
+        else:
+            print(f"❌ Market sentiment analysis failed: {result['error']}")
+            return jsonify({'error': result['error']}), 500
+            
+    except Exception as e:
+        print(f"💥 Exception in market sentiment analysis: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
 @app.route('/api/latest-trade-recommendation')
 def get_latest_trade_recommendation():
     """API endpoint to get the latest trade recommendation"""
