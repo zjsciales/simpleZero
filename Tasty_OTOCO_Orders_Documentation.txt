@@ -317,34 +317,7 @@ All messages which are published via the streamer use the same json object repre
 
 Each message will have a type key that corresponds to the class of data being provided. For example, a notification with type: Order will have a full order json message in the data key:
 
-Order Notification
-{
-  type: 'Order',
-  data: {
-    "id": 1,
-    "account-number": "5WT00000",
-    "time-in-force": "Day",
-    "order-type": "Market",
-    "size": 100,
-    "underlying-symbol": "AAPL",
-    "underlying-instrument-type": "Equity",
-    "status": "Live",
-    "cancellable": true,
-    "editable": true,
-    "edited": false,
-    "legs": [
-        {
-            "instrument-type": "Equity",
-            "symbol": "AAPL",
-            "quantity": 100,
-            "remaining-quantity": 100,
-            "action": "Buy to Open",
-            "fills": []
-        }
-    ]
-  },
-  timestamp: 1688595114405
-}
+
 Notification Nuances
 Order Filled notifications
 tastytrade marks an order Filled as soon as possible and sends fill data through the Account Streamer. Here’s how it works:

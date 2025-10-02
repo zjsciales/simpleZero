@@ -287,6 +287,164 @@
             border-left: 4px solid #27ae60;
         }
 
+        .automation-container {
+            margin-top: 20px;
+        }
+
+        .automation-controls {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .control-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 20px;
+        }
+
+        .strategy-description {
+            font-size: 14px;
+            color: #6c757d;
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+
+        .control-actions {
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .automation-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: auto;
+        }
+
+        .status-indicator {
+            font-size: 16px;
+        }
+
+        .status-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .automation-dashboard {
+            margin-bottom: 20px;
+        }
+
+        .dashboard-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .dashboard-card {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .dashboard-card h4 {
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .status-item .label {
+            font-size: 12px;
+            color: #6c757d;
+            font-weight: 500;
+        }
+
+        .progress-bar {
+            width: 100px;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: #28a745;
+            transition: width 0.3s ease;
+        }
+
+        .automation-log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .log-header h4 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-small {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .btn-small:hover {
+            background: #5a6268;
+        }
+
+        .log-content {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .dte-discovery-info {
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: #e8f5e8;
+            border: 1px solid #d4edda;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .text-muted {
+            color: #6c757d;
+        }
+
         .btn {
             padding: 10px 20px;
             border: none;
@@ -324,6 +482,15 @@
 
         .btn-success:hover {
             background: #219a52;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
         }
 
         .btn-outline {
@@ -767,6 +934,110 @@
                 
                 <div id="analysis-result" class="analysis-result" style="display: none;">
                     <div id="analysis-content" class="analysis-content"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Automated Trading Section -->
+        <div class="section automated-trading">
+            <div class="section-header">
+                <span class="section-icon">🤖</span>
+                <span class="section-title">Automated 32DTE Trading</span>
+                <div class="automation-status" id="automation-status">
+                    <span class="status-indicator" id="status-indicator">🔄</span>
+                    <span class="status-text" id="status-text">Loading...</span>
+                </div>
+            </div>
+            
+            <div class="automation-container">
+                <!-- Automation Controls -->
+                <div class="automation-controls">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label class="control-label">Weekly 32DTE Strategy</label>
+                            <div class="strategy-description">
+                                Automatically generates SPY vertical spread recommendations every Monday for options expiring in 32 days.
+                                Analysis runs at 10:00 AM ET after market opening. System intelligently selects the optimal expiration date within 28-35 days.
+                            </div>
+                            <div id="dte-discovery-info" class="dte-discovery-info" style="display: none;">
+                                <small class="text-muted">Next optimal expiration: <span id="optimal-dte">Loading...</span></small>
+                            </div>
+                        </div>
+                        
+                        <div class="control-actions">
+                            <button onclick="toggleAutomation()" id="automation-toggle" class="btn btn-primary">
+                                <span id="toggle-text">🚀 Start Automation</span>
+                            </button>
+                            <button onclick="forceExecuteAnalysis()" id="force-execute" class="btn btn-secondary" disabled>
+                                ⚡ Force Run Now
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Automation Status Dashboard -->
+                <div class="automation-dashboard">
+                    <div class="dashboard-row">
+                        <div class="dashboard-card">
+                            <h4>📅 Schedule Status</h4>
+                            <div id="schedule-info">
+                                <div class="status-item">
+                                    <span class="label">Next Run:</span>
+                                    <span id="next-run-time">Not scheduled</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="label">Last Run:</span>
+                                    <span id="last-run-time">Never</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="dashboard-card">
+                            <h4>⚙️ Execution Status</h4>
+                            <div id="execution-info">
+                                <div class="status-item">
+                                    <span class="label">Current Phase:</span>
+                                    <span id="current-phase">Idle</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="label">Progress:</span>
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="dashboard-card">
+                            <h4>🎯 Latest Trade</h4>
+                            <div id="latest-trade-info">
+                                <div class="status-item">
+                                    <span class="label">Strategy:</span>
+                                    <span id="latest-strategy">No trades generated</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="label">Status:</span>
+                                    <span id="trade-status">N/A</span>
+                                </div>
+                                <div id="execute-trade-container" style="display: none; margin-top: 10px;">
+                                    <button onclick="executeAutomatedTrade()" class="btn btn-success">
+                                        💰 Execute Trade
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Automation Log -->
+                <div class="automation-log">
+                    <div class="log-header">
+                        <h4>📊 Automation Log</h4>
+                        <button onclick="refreshAutomationStatus()" class="btn-small">🔄 Refresh</button>
+                    </div>
+                    <div id="automation-log-content" class="log-content">
+                        Loading automation status...
+                    </div>
                 </div>
             </div>
         </div>
@@ -1378,6 +1649,286 @@
                     }
                 });
         });
+
+        // =====================================================================
+        // AUTOMATED TRADING FUNCTIONS
+        // =====================================================================
+
+        let automationInterval;
+        let isAutomationRunning = false;
+
+        // Initialize automation status on page load
+        async function initializeAutomation() {
+            await refreshAutomationStatus();
+            await loadDTEDiscoveryInfo();
+            
+            // Set up periodic status updates every 30 seconds when automation is running
+            automationInterval = setInterval(async () => {
+                if (isAutomationRunning) {
+                    await refreshAutomationStatus();
+                }
+            }, 30000);
+        }
+
+        // Toggle automation on/off
+        async function toggleAutomation() {
+            const toggleBtn = document.getElementById('automation-toggle');
+            const toggleText = document.getElementById('toggle-text');
+            
+            try {
+                toggleBtn.disabled = true;
+                toggleText.textContent = '🔄 Processing...';
+                
+                if (isAutomationRunning) {
+                    // Stop automation
+                    const response = await fetch('/api/automation/stop', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        isAutomationRunning = false;
+                        updateAutomationUI('stopped');
+                    } else {
+                        throw new Error(result.message || 'Failed to stop automation');
+                    }
+                } else {
+                    // Start automation
+                    const response = await fetch('/api/automation/start', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    const result = await response.json();
+                    if (result.success) {
+                        isAutomationRunning = true;
+                        updateAutomationUI('running');
+                    } else {
+                        throw new Error(result.message || 'Failed to start automation');
+                    }
+                }
+                
+                await refreshAutomationStatus();
+                
+            } catch (error) {
+                console.error('Toggle automation error:', error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                toggleBtn.disabled = false;
+            }
+        }
+
+        // Force execute analysis now
+        async function forceExecuteAnalysis() {
+            const forceBtn = document.getElementById('force-execute');
+            
+            try {
+                forceBtn.disabled = true;
+                forceBtn.textContent = '⚡ Executing...';
+                
+                const response = await fetch('/api/automation/force-execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    let message = '✅ Analysis executed successfully! Check the log for details.';
+                    if (result.optimal_dte) {
+                        message += `\n🎯 Selected optimal expiration: ${result.optimal_dte} days`;
+                    }
+                    alert(message);
+                    await refreshAutomationStatus();
+                    await loadDTEDiscoveryInfo(); // Refresh DTE info
+                } else {
+                    throw new Error(result.message || 'Execution failed');
+                }
+                
+            } catch (error) {
+                console.error('Force execute error:', error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                forceBtn.disabled = false;
+                forceBtn.textContent = '⚡ Force Run Now';
+            }
+        }
+
+        // Execute automated trade
+        async function executeAutomatedTrade() {
+            if (!confirm('Are you sure you want to execute the automated trade recommendation?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/automation/execute-trade', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('✅ Trade executed successfully!');
+                    await refreshAutomationStatus();
+                } else {
+                    throw new Error(result.message || 'Trade execution failed');
+                }
+                
+            } catch (error) {
+                console.error('Execute trade error:', error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+
+        // Refresh automation status
+        async function refreshAutomationStatus() {
+            try {
+                const response = await fetch('/api/automation/status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateAutomationStatus(data);  // ✅ Pass the full data object
+                } else {
+                    console.error('Failed to get automation status:', data.message);
+                }
+                
+            } catch (error) {
+                console.error('Refresh automation status error:', error);
+            }
+        }
+
+        // Update automation status display
+        function updateAutomationStatus(status) {
+            const statusIndicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+            const nextRunTime = document.getElementById('next-run-time');
+            const lastRunTime = document.getElementById('last-run-time');
+            const currentPhase = document.getElementById('current-phase');
+            const progressFill = document.getElementById('progress-fill');
+            const latestStrategy = document.getElementById('latest-strategy');
+            const tradeStatus = document.getElementById('trade-status');
+            const executeTradeContainer = document.getElementById('execute-trade-container');
+            const logContent = document.getElementById('automation-log-content');
+            
+            // Update main status
+            isAutomationRunning = status.status === 'running';
+            updateAutomationUI(status.status);
+            
+            // Update schedule info
+            if (nextRunTime) {
+                nextRunTime.textContent = status.next_scheduled_run ? 
+                    new Date(status.next_scheduled_run).toLocaleString() : 'Not scheduled';
+            }
+            
+            if (lastRunTime) {
+                lastRunTime.textContent = status.last_trade_date ? 
+                    new Date(status.last_trade_date).toLocaleString() : 'Never';
+            }
+            
+            // Update execution info
+            const execStatus = status.detailed_status || {};
+            if (currentPhase) {
+                currentPhase.textContent = execStatus.current_phase || 'Idle';
+            }
+            
+            if (progressFill) {
+                const progress = execStatus.is_active ? 50 : (execStatus.success ? 100 : 0);
+                progressFill.style.width = `${progress}%`;
+            }
+            
+            // Update latest trade info
+            if (status.latest_trade) {
+                if (latestStrategy) {
+                    latestStrategy.textContent = status.latest_trade.strategy || 'No strategy';
+                }
+                if (tradeStatus) {
+                    tradeStatus.textContent = status.latest_trade.status || 'N/A';
+                }
+                if (executeTradeContainer && status.latest_trade.ready_for_execution) {
+                    executeTradeContainer.style.display = 'block';
+                } else if (executeTradeContainer) {
+                    executeTradeContainer.style.display = 'none';
+                }
+            }
+            
+            // Update log
+            if (logContent) {
+                const logEntries = [];
+                if (execStatus.last_completed) {
+                    logEntries.push(`Last completed: ${new Date(execStatus.last_completed).toLocaleString()}`);
+                }
+                if (execStatus.error_message) {
+                    logEntries.push(`❌ Error: ${execStatus.error_message}`);
+                }
+                if (execStatus.success) {
+                    logEntries.push(`✅ Last analysis: Success`);
+                }
+                if (execStatus.current_phase && execStatus.is_active) {
+                    logEntries.push(`🔄 Currently: ${execStatus.current_phase}`);
+                }
+                
+                logContent.textContent = logEntries.length > 0 ? logEntries.join('\n') : 'No recent activity';
+            }
+        }
+
+        // Update automation UI elements
+        function updateAutomationUI(status) {
+            const statusIndicator = document.getElementById('status-indicator');
+            const statusText = document.getElementById('status-text');
+            const toggleBtn = document.getElementById('automation-toggle');
+            const toggleText = document.getElementById('toggle-text');
+            const forceBtn = document.getElementById('force-execute');
+            
+            if (status === 'running') {
+                statusIndicator.textContent = '🟢';
+                statusText.textContent = 'Active';
+                toggleText.textContent = '🛑 Stop Automation';
+                toggleBtn.className = 'btn btn-danger';
+                forceBtn.disabled = false;
+            } else {
+                statusIndicator.textContent = '🔴';
+                statusText.textContent = 'Stopped';
+                toggleText.textContent = '🚀 Start Automation';
+                toggleBtn.className = 'btn btn-primary';
+                forceBtn.disabled = true;
+            }
+        }
+
+        // Initialize automation when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wait a bit for auth to load, then initialize automation
+            setTimeout(initializeAutomation, 2000);
+        });
+
+        // DTE Discovery Functions
+        async function loadDTEDiscoveryInfo() {
+            try {
+                const response = await fetch('/api/automation/dte-discovery');
+                const data = await response.json();
+                
+                if (data.success && data.optimal_dte) {
+                    const dteInfo = document.getElementById('dte-discovery-info');
+                    const optimalDteSpan = document.getElementById('optimal-dte');
+                    
+                    if (dteInfo && optimalDteSpan) {
+                        optimalDteSpan.textContent = `${data.optimal_dte} days (${data.target_range} target)`;
+                        dteInfo.style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.log('DTE discovery info not available:', error);
+            }
+        }
     </script>
 </body>
 </html>

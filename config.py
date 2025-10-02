@@ -130,9 +130,9 @@ MIN_TIME_TO_EXPIRY = 0.5       # Minimum hours before expiry to hold positions
 CLOSE_BEFORE_EXPIRY = 15       # Minutes before expiry to close all positions
 
 # DTE (Days to Expiration) Configuration
-DEFAULT_DTE = 0                # Default to 0DTE trading
-MAX_DTE_OPTIONS = 10           # Maximum days to expiration offered
-AVAILABLE_DTE_OPTIONS = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10]  # Available DTE selections
+DEFAULT_DTE = 32               # Default to 32DTE for automated weekly trading
+MAX_DTE_OPTIONS = 40           # Maximum days to expiration offered
+AVAILABLE_DTE_OPTIONS = [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 14, 21, 28, 32, 35, 40]  # Available DTE selections
 
 # DTE-specific Risk Management
 DTE_RISK_MULTIPLIERS = {
@@ -142,7 +142,13 @@ DTE_RISK_MULTIPLIERS = {
     3: 1.8,    # 3DTE: 80% higher risk tolerance
     5: 2.2,    # 5DTE: 120% higher risk tolerance
     7: 2.5,    # 7DTE: 150% higher risk tolerance
-    10: 3.0    # 10DTE: 200% higher risk tolerance
+    10: 3.0,   # 10DTE: 200% higher risk tolerance
+    14: 3.5,   # 2-week options: 250% higher risk tolerance
+    21: 4.0,   # 3-week options: 300% higher risk tolerance
+    28: 4.5,   # 4-week options: 350% higher risk tolerance
+    32: 5.0,   # 32DTE: 400% higher risk tolerance (weekly target)
+    35: 5.2,   # 5-week options: 420% higher risk tolerance
+    40: 5.5    # 40DTE: 450% higher risk tolerance
 }
 
 # =============================================================================
@@ -233,6 +239,42 @@ DTE_DATA_CONFIGS = {
         'interval': '1d',
         'analysis_period': '60d',
         'data_points': 10  # Last 10 days
+    },
+    14: {
+        'period': '3mo',
+        'interval': '1d',
+        'analysis_period': '90d',
+        'data_points': 14  # Last 14 days
+    },
+    21: {
+        'period': '6mo',
+        'interval': '1d',
+        'analysis_period': '120d',
+        'data_points': 21  # Last 21 days
+    },
+    28: {
+        'period': '6mo',
+        'interval': '1d',
+        'analysis_period': '150d',
+        'data_points': 28  # Last 28 days
+    },
+    32: {
+        'period': '1y',
+        'interval': '1d',
+        'analysis_period': '180d',
+        'data_points': 32  # Last 32 days for comprehensive analysis
+    },
+    35: {
+        'period': '1y',
+        'interval': '1d',
+        'analysis_period': '200d',
+        'data_points': 35  # Last 35 days
+    },
+    40: {
+        'period': '1y',
+        'interval': '1d',
+        'analysis_period': '240d',
+        'data_points': 40  # Last 40 days
     }
 }
 

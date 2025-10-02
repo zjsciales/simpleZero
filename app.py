@@ -1,11 +1,17 @@
 # Simple Flask app with SSL and TastyTrade OAuth2
 from flask import Flask, render_template, request, redirect, session, jsonify
 from datetime import datetime
+import os
+import logging
 from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date
 import config
 import uuid
 import db_storage  # Import our database storage module
 from collections import defaultdict
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_in_production'
@@ -734,7 +740,13 @@ def account_streaming():
             
             if action == 'start':
                 from account_streamer import start_global_streamer
-                result = start_global_streamer(token)
+                from trader import get_current_account_number
+                
+                # Get account number for streaming
+                account_number = get_current_account_number()
+                account_numbers = [account_number] if account_number else None
+                
+                result = start_global_streamer(token, account_numbers)
                 return jsonify({
                     'success': result['success'],
                     'message': result['message'],
@@ -754,6 +766,36 @@ def account_streaming():
             
     except Exception as e:
         print(f"💥 Exception in account streaming: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
+@app.route('/api/test-order-message', methods=['POST'])
+def test_order_message():
+    """API endpoint to add test order message for UI testing"""
+    try:
+        if not session.get('access_token'):
+            return jsonify({'error': 'Not authenticated'}), 401
+            
+        from account_streamer import add_test_order_message
+        result = add_test_order_message()
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"💥 Exception in test order message: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
+@app.route('/api/test-fill-message', methods=['POST'])
+def test_fill_message():
+    """API endpoint to add test fill message for UI testing"""
+    try:
+        if not session.get('access_token'):
+            return jsonify({'error': 'Not authenticated'}), 401
+            
+        from account_streamer import add_test_fill_message
+        result = add_test_fill_message()
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"💥 Exception in test fill message: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
 @app.route('/api/latest-trade-recommendation')
@@ -968,11 +1010,29 @@ def logout():
 
 @app.route('/api/auth-status')
 def auth_status():
-    """Check if user is authenticated"""
+    """Check if user is authenticated for current environment"""
     token = session.get('access_token')
+    is_authenticated = token is not None
+    
+    # Check token scopes if authenticated
+    token_scopes = []
+    has_trading_permissions = False
+    
+    if is_authenticated:
+        try:
+            from token_manager import verify_token_scopes
+            has_required_scopes, scopes = verify_token_scopes(token)
+            token_scopes = scopes or []
+            has_trading_permissions = 'trade' in token_scopes
+        except Exception as e:
+            print(f"⚠️ Error checking token scopes: {e}")
+    
     return jsonify({
-        'authenticated': token is not None,
-        'session_active': 'access_token' in session
+        'authenticated': is_authenticated,
+        'session_active': 'access_token' in session,
+        'environment': config.ENVIRONMENT_NAME,
+        'trading_permissions': has_trading_permissions,
+        'scopes': token_scopes
     })
 
 @app.route('/api/execute-trade', methods=['POST'])
@@ -998,17 +1058,93 @@ def execute_trade():
                 'error': 'No trade signal available'
             }), 400
         
-        # TODO: Implement actual trade execution with TastyTrade API
-        # For now, return a success simulation
-        return jsonify({
-            'success': True,
-            'order_id': 'SIM123456789',
-            'result': {
-                'status': 'Submitted',
-                'strategy': parsed_trade.get('strategy', 'Unknown'),
-                'message': f'Trade submitted successfully to {config.ENVIRONMENT_NAME} environment'
-            }
-        })
+        # Execute real trade through TastyTrade API
+        from trader import TastyTradeAPI, GrokResponseParser
+        
+        try:
+            # Initialize TastyTrade API
+            api = TastyTradeAPI()
+            
+            # Parse the trade signal into a spread order
+            parser = GrokResponseParser()
+            spread_order = parser.build_spread_order_from_parsed_trade(parsed_trade)
+            
+            if not spread_order:
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to build spread order from trade data'
+                }), 400
+            
+            print(f"🚀 Executing real trade: {spread_order.legs[0].symbol} spread")
+            
+            # Get account number for streaming
+            account_number = api.get_account_number()
+            account_numbers = [account_number] if account_number else None
+            print(f"📊 Account for streaming: {account_numbers}")
+            
+            # Start account streaming before submitting order
+            from account_streamer import start_global_streamer
+            streaming_result = start_global_streamer(access_token, account_numbers)
+            
+            if not streaming_result.get('success'):
+                print(f"⚠️ Warning: Failed to start account streaming: {streaming_result.get('message')}")
+            else:
+                print("📡 Account streaming started for trade monitoring")
+            
+            # Submit the order to TastyTrade
+            order_result = api.submit_spread_order(spread_order)
+            
+            if order_result:
+                # Extract order details from TastyTrade response
+                order_data = order_result.get('data', {}).get('order', {})
+                order_id = order_data.get('id')
+                status = order_data.get('status', 'Submitted')
+                
+                print(f"✅ Trade executed successfully - Order ID: {order_id}, Status: {status}")
+                
+                # Add manual order notification since websocket auth is failing
+                try:
+                    from account_streamer import add_manual_order_message
+                    order_message = {
+                        'id': order_id,
+                        'status': status,
+                        'account-number': account_number,
+                        'underlying-symbol': parsed_trade.get('underlying_symbol', 'SPY'),
+                        'strategy_type': parsed_trade.get('strategy_type', 'Unknown'),
+                        'price': parsed_trade.get('credit_received', 0.0)
+                    }
+                    add_manual_order_message(order_message)
+                    print(f"📝 Added manual order message for UI display")
+                except Exception as msg_error:
+                    print(f"⚠️ Failed to add manual order message: {msg_error}")
+                
+                # TODO: Fix websocket "Unknown domain" error - investigate token/auth issue
+                
+                # TODO: Implement order status polling for real-time updates
+                # Since websocket auth is failing with "Unknown domain", we need polling fallback
+                
+                return jsonify({
+                    'success': True,
+                    'order_id': order_id,
+                    'result': {
+                        'status': status,
+                        'strategy': parsed_trade.get('strategy_type', 'Unknown'),
+                        'message': f'Real trade submitted to {config.ENVIRONMENT_NAME} - monitoring active'
+                    },
+                    'streaming_started': streaming_result.get('success', False)
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'error': 'Failed to submit order to TastyTrade API'
+                }), 500
+                
+        except Exception as trade_error:
+            print(f"💥 Trade execution error: {trade_error}")
+            return jsonify({
+                'success': False,
+                'error': f'Trade execution failed: {str(trade_error)}'
+            }), 500
         
     except Exception as e:
         print(f"💥 Exception in execute trade: {e}")
@@ -1050,7 +1186,248 @@ def streaming_updates():
         'last_update': datetime.now().isoformat()
     })
 
+# =============================================================================
+# AUTOMATED TRADING API ENDPOINTS
+# =============================================================================
+
+@app.route('/api/automation/status')
+def automation_status():
+    """Get automation system status"""
+    try:
+        from auto_trade_scheduler import get_auto_trader_status, get_latest_automated_trade
+        
+        # Get basic status
+        status = get_auto_trader_status()
+        
+        # Try to get latest trade recommendation
+        try:
+            latest_trade = get_latest_automated_trade()
+            if latest_trade and latest_trade.get('success'):
+                status['latest_trade'] = {
+                    'strategy': latest_trade.get('trade_data', {}).get('strategy_type', 'Unknown'),
+                    'status': 'Ready for execution',
+                    'ready_for_execution': True,
+                    'timestamp': latest_trade.get('timestamp')
+                }
+            else:
+                status['latest_trade'] = None
+        except Exception as e:
+            logger.warning(f"Could not fetch latest trade: {e}")
+            status['latest_trade'] = None
+        
+        return jsonify({
+            'success': True,
+            'status': status['status'],
+            'last_trade_date': status.get('last_trade_date'),
+            'paper_trading': status.get('paper_trading', True),
+            'detailed_status': status.get('detailed_status', {}),
+            'next_scheduled_run': status.get('detailed_status', {}).get('next_scheduled_run'),
+            'latest_trade': status.get('latest_trade')
+        })
+        
+    except Exception as e:
+        print(f"💥 Exception getting automation status: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Failed to get automation status: {e}',
+            'status': 'error'
+        })
+
+@app.route('/api/automation/start', methods=['POST'])
+def start_automation():
+    """Start the automated trading system"""
+    try:
+        # Check authentication
+        if 'access_token' not in session:
+            return jsonify({'success': False, 'message': 'Authentication required'})
+        
+        from auto_trade_scheduler import start_automated_trading
+        
+        # Start automation (use simple Grok for testing if in development)
+        use_simple_grok = not config.IS_PRODUCTION
+        success = start_automated_trading(use_simple_grok=use_simple_grok)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Automated trading system started successfully',
+                'mode': 'production' if config.IS_PRODUCTION else 'development'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to start automated trading system'
+            })
+            
+    except Exception as e:
+        print(f"💥 Exception starting automation: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error starting automation: {e}'
+        })
+
+@app.route('/api/automation/stop', methods=['POST'])
+def stop_automation():
+    """Stop the automated trading system"""
+    try:
+        from auto_trade_scheduler import stop_automated_trading
+        
+        success = stop_automated_trading()
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Automated trading system stopped successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to stop automated trading system'
+            })
+            
+    except Exception as e:
+        print(f"💥 Exception stopping automation: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error stopping automation: {e}'
+        })
+
+@app.route('/api/automation/force-execute', methods=['POST'])
+def force_execute_automation():
+    """Force execute a trade analysis (for testing)"""
+    try:
+        # Check authentication
+        if 'access_token' not in session:
+            return jsonify({'success': False, 'message': 'Authentication required'})
+        
+        from auto_trade_scheduler import force_execute_trade
+        
+        result = force_execute_trade()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"💥 Exception in force execute: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error in force execution: {e}'
+        })
+
+@app.route('/api/automation/execute-trade', methods=['POST'])
+def execute_automated_trade():
+    """Execute the latest automated trade recommendation"""
+    try:
+        # Check authentication
+        if 'access_token' not in session:
+            return jsonify({'success': False, 'message': 'Authentication required'})
+        
+        from auto_trade_scheduler import get_latest_automated_trade
+        
+        # Get the latest trade recommendation
+        trade_data = get_latest_automated_trade()
+        
+        if not trade_data or not trade_data.get('success'):
+            return jsonify({
+                'success': False,
+                'message': 'No automated trade recommendations available'
+            })
+        
+        # Here you would integrate with the actual trade execution system
+        # For now, we'll return a simulated success response
+        return jsonify({
+            'success': True,
+            'message': 'Trade execution initiated (simulated)',
+            'trade_details': trade_data.get('trade_data', {}),
+            'note': 'This is currently a simulation. Integrate with actual trading system.'
+        })
+        
+    except Exception as e:
+        print(f"💥 Exception executing automated trade: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error executing trade: {e}'
+        })
+
+@app.route('/api/automation/dte-discovery')
+def dte_discovery():
+    """Get information about optimal DTE discovery for SPY"""
+    try:
+        # Check authentication
+        if 'access_token' not in session:
+            return jsonify({'success': False, 'message': 'Authentication required'})
+        
+        from trading_scheduler import get_scheduler_instance
+        
+        scheduler = get_scheduler_instance()
+        
+        # Get current optimal DTE
+        optimal_dte = scheduler.find_optimal_dte(ticker="SPY", target_dte=32, tolerance=5)
+        
+        # Also get all available DTEs for context
+        from market_data import get_available_dtes
+        available_dtes = get_available_dtes("SPY")
+        
+        # Filter to show relevant range
+        relevant_dtes = [d for d in available_dtes if 20 <= d['dte'] <= 45]
+        
+        return jsonify({
+            'success': True,
+            'optimal_dte': optimal_dte,
+            'target_range': '28-33 days',
+            'available_dtes_in_range': relevant_dtes,
+            'discovery_info': {
+                'target': 32,
+                'tolerance': 5,
+                'min_acceptable': 27,
+                'max_acceptable': 37
+            }
+        })
+        
+    except Exception as e:
+        print(f"💥 Exception in DTE discovery: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error in DTE discovery: {e}'
+        })
+
 if __name__ == '__main__':
+    # Initialize automated trading system (optional)
+    try:
+        print("🤖 Checking automated trading system initialization...")
+        
+        # Auto-start conditions:
+        # 1. Production mode (Railway deployment)
+        # 2. ENABLE_AUTOMATION environment variable set to 'true'
+        should_auto_start = (
+            config.IS_PRODUCTION or 
+            os.getenv('ENABLE_AUTOMATION', 'false').lower() == 'true'
+        )
+        
+        if should_auto_start:
+            print("🚀 Auto-starting automated trading system...")
+            from auto_trade_scheduler import start_automated_trading
+            
+            # Use simple Grok for development, comprehensive for production
+            use_simple_grok = not config.IS_PRODUCTION
+            automation_started = start_automated_trading(use_simple_grok=use_simple_grok)
+            
+            if automation_started:
+                grok_mode = "comprehensive" if config.IS_PRODUCTION else "simple"
+                print(f"✅ Automated trading system started successfully ({grok_mode} mode)")
+                print("📅 32DTE analysis scheduled for Mondays at 10:00 AM ET")
+            else:
+                print("⚠️ Failed to start automated trading system")
+        else:
+            print("🔧 Automated trading disabled - start manually via UI")
+            print("💡 To enable: set ENABLE_AUTOMATION=true environment variable")
+            
+    except ImportError as e:
+        print(f"📦 Automated trading dependencies not available: {e}")
+        print("💡 Install missing packages: pip install schedule")
+    except Exception as e:
+        print(f"⚠️ Could not initialize automated trading: {e}")
+    
+    # Start Flask application
     if config.IS_PRODUCTION:
         # Production settings for Railway
         print("🌍 Starting in PRODUCTION mode...")

@@ -87,6 +87,11 @@ class TastyTradeStreamer:
         self.position_handler = None
         self.error_handler = None
         
+        # Message storage for recent activity
+        self.recent_messages = []
+        self.max_messages = 50  # Keep last 50 messages
+        self.message_lock = threading.Lock()
+        
         # Request tracking
         self.request_counter = 0
         self.pending_requests = {}
@@ -112,7 +117,7 @@ class TastyTradeStreamer:
             print("🔌 Connecting to TastyTrade streamer...")
             
             # Create websocket connection with proper callbacks
-            websocket.enableTrace(False)  # Set to True for debugging
+            websocket.enableTrace(False)  # Disable verbose debugging
             self.ws = websocket.WebSocketApp(
                 self.host,
                 on_open=self._on_open,
@@ -188,6 +193,8 @@ class TastyTradeStreamer:
         }
         
         print(f"📡 Subscribing to accounts: {self.account_numbers}")
+        print(f"🔑 Using token: {self.access_token[:20]}..." if self.access_token else "❌ No token")
+        print(f"🆔 Request ID: {request_id}")
         self._send_message(connect_message)
         self.pending_requests[request_id] = "connect"
     
@@ -264,6 +271,17 @@ class TastyTradeStreamer:
         account = order_data.get('account-number')
         symbol = order_data.get('underlying-symbol')
         
+        # Store order message for UI display
+        status_icon = "🟡" if status == "Received" else "🟢" if status == "Filled" else "🔵" if status == "Live" else "🔴"
+        
+        self._store_message({
+            'type': 'Order',
+            'category': 'info' if status in ['Received', 'Live'] else 'success' if status == 'Filled' else 'warning',
+            'message': f"{status_icon} ORDER {status}: {symbol} (ID: {order_id})",
+            'timestamp': timestamp,
+            'data': order_data
+        })
+        
         print(f"📝 Order Update:")
         print(f"   🆔 ID: {order_id}")
         print(f"   📊 Status: {status}")
@@ -276,11 +294,39 @@ class TastyTradeStreamer:
     
     def _handle_fill_notification(self, fill_data: Dict[str, Any], timestamp: int):
         """Handle order fill notifications"""
+        # Store fill message for UI display
+        fill_symbol = fill_data.get('underlying-symbol', 'Unknown')
+        fill_quantity = fill_data.get('quantity', 0)
+        fill_price = fill_data.get('price', 0)
+        fill_id = fill_data.get('id', 'Unknown')
+        
+        self._store_message({
+            'type': 'Fill',
+            'category': 'success',
+            'message': f"🟢 FILL: {fill_quantity} {fill_symbol} @ ${fill_price} (ID: {fill_id})",
+            'timestamp': timestamp,
+            'data': fill_data
+        })
+        
         print(f"✅ Fill Notification: {fill_data}")
         
         # Call custom fill handler if provided
         if self.fill_handler:
             self.fill_handler(fill_data, timestamp)
+    
+    def _store_message(self, message_data: Dict[str, Any]):
+        """Store message for recent activity display"""
+        with self.message_lock:
+            # Add timestamp if not present
+            if 'timestamp' not in message_data:
+                message_data['timestamp'] = int(time.time() * 1000)
+            
+            # Add to beginning of list (most recent first)
+            self.recent_messages.insert(0, message_data)
+            
+            # Keep only max_messages
+            if len(self.recent_messages) > self.max_messages:
+                self.recent_messages = self.recent_messages[:self.max_messages]
     
     def _handle_balance_notification(self, balance_data: Dict[str, Any], timestamp: int):
         """Handle account balance updates"""
@@ -348,6 +394,7 @@ class TastyTradeStreamer:
         
         try:
             message_json = json.dumps(message)
+            print(f"📤 Sending websocket message: {message_json}")
             self.ws.send(message_json)
             return True
         except Exception as e:
@@ -422,8 +469,14 @@ class TastyTradeStreamer:
             'heartbeat_interval': self.heartbeat_interval,
             'last_heartbeat': self.last_heartbeat_response.isoformat() if self.last_heartbeat_response else None,
             'pending_requests': len(self.pending_requests),
-            'healthy': self.is_healthy()
+            'healthy': self.is_healthy(),
+            'recent_messages': self.get_recent_messages()
         }
+    
+    def get_recent_messages(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent order/fill messages for UI display"""
+        with self.message_lock:
+            return self.recent_messages[:limit]
 
 
 def create_sandbox_streamer(access_token: str, account_numbers: List[str]) -> TastyTradeStreamer:
@@ -484,7 +537,8 @@ def get_streamer_status() -> Dict[str, Any]:
                 'session_id': None,
                 'accounts': [],
                 'uptime': 0,
-                'messages_received': 0
+                'messages_received': 0,
+                'recent_messages': []
             }
         
         return _global_streamer.get_status()
@@ -633,3 +687,85 @@ if __name__ == "__main__":
             streamer.disconnect()
     else:
         print("❌ Failed to connect streamer")
+
+
+def add_test_order_message() -> Dict[str, Any]:
+    """Add a test order message for UI testing"""
+    global _global_streamer
+    
+    with _streamer_lock:
+        if _global_streamer is None:
+            return {'success': False, 'message': 'No active streamer'}
+        
+        # Create test order message
+        test_order = {
+            'type': 'Order',
+            'category': 'info',
+            'message': '🟡 ORDER Received: SPY (ID: TEST123)',
+            'timestamp': int(time.time() * 1000),
+            'data': {
+                'id': 'TEST123',
+                'status': 'Received',
+                'underlying-symbol': 'SPY',
+                'account-number': '5WT00000'
+            }
+        }
+        
+        _global_streamer._store_message(test_order)
+        return {'success': True, 'message': 'Test order message added'}
+
+
+def add_test_fill_message() -> Dict[str, Any]:
+    """Add a test fill message for UI testing"""
+    global _global_streamer
+    
+    with _streamer_lock:
+        if _global_streamer is None:
+            return {'success': False, 'message': 'No active streamer'}
+        
+        # Create test fill message
+        test_fill = {
+            'type': 'Fill',
+            'category': 'success',
+            'message': '🟢 FILL: 1 SPY @ $575.50 (ID: FILL456)',
+            'timestamp': int(time.time() * 1000),
+            'data': {
+                'id': 'FILL456',
+                'quantity': 1,
+                'price': 575.50,
+                'underlying-symbol': 'SPY'
+            }
+        }
+        
+        _global_streamer._store_message(test_fill)
+        return {'success': True, 'message': 'Test fill message added'}
+
+
+def add_manual_order_message(order_data: Dict[str, Any]):
+    """Add a manual order message when websocket isn't working"""
+    global _global_streamer
+    
+    with _streamer_lock:
+        if _global_streamer is None:
+            print("⚠️ No active streamer to add manual order message")
+            return {'success': False, 'message': 'No active streamer'}
+        
+        # Create manual order message
+        order_id = order_data.get('id', 'Unknown')
+        status = order_data.get('status', 'Submitted')
+        symbol = order_data.get('underlying-symbol', 'Unknown')
+        strategy = order_data.get('strategy_type', 'Unknown')
+        
+        status_icon = "🟡" if status in ["Received", "Routed"] else "🟢" if status == "Filled" else "🔵" if status == "Live" else "🔴"
+        
+        manual_order = {
+            'type': 'Order',
+            'category': 'info' if status in ['Received', 'Routed', 'Live'] else 'success' if status == 'Filled' else 'warning',
+            'message': f"{status_icon} ORDER {status}: {symbol} {strategy} (ID: {order_id})",
+            'timestamp': int(time.time() * 1000),
+            'data': order_data
+        }
+        
+        _global_streamer._store_message(manual_order)
+        print(f"📝 Manual order message added: {symbol} {strategy} - {status}")
+        return {'success': True}

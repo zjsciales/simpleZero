@@ -62,6 +62,22 @@ def init_db():
         )
         ''')
         
+        # Create tokens table for persistent OAuth token storage
+        # This enables automation to work across deployments on Railway
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            environment TEXT NOT NULL,
+            access_token TEXT,
+            refresh_token TEXT,
+            token_scopes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            UNIQUE (environment)
+        )
+        ''')
+        
         conn.commit()
         logger.info(f"✅ Database initialized successfully: {DB_FILE}")
     except Exception as e:
@@ -80,6 +96,7 @@ def get_or_create_user_id(email=None, session_id=None):
     Returns:
         str: User ID
     """
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -133,7 +150,8 @@ def get_or_create_user_id(email=None, session_id=None):
         # Fallback to a random ID
         return f"temp_{str(uuid.uuid4())}"
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def store_data(data_type, data, user_id=None, session_id=None, ticker=None, dte=None):
     """
@@ -210,6 +228,7 @@ def get_data(data_type, user_id=None, session_id=None, ticker=None, dte=None):
     Returns:
         dict or None: Retrieved data or None if not found
     """
+    conn = None
     try:
         # Get user ID if not provided
         if not user_id and session_id:
@@ -254,11 +273,13 @@ def get_data(data_type, user_id=None, session_id=None, ticker=None, dte=None):
         logger.error(f"❌ Error retrieving data: {e}")
         return None
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def get_latest_data(data_type, user_id=None, session_id=None):
     """
     Get the latest data of a particular type regardless of ticker or DTE
+    Includes both user data and automation data for dashboard access
     
     Args:
         data_type (str): Type of data to retrieve
@@ -268,32 +289,51 @@ def get_latest_data(data_type, user_id=None, session_id=None):
     Returns:
         dict or None: Latest data or None if not found
     """
+    conn = None
     try:
         # Get user ID if not provided
         if not user_id and session_id:
             user_id = get_or_create_user_id(session_id=session_id)
-            
-        if not user_id:
-            return None
-            
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        cursor.execute(
-            "SELECT data_json FROM trade_data WHERE user_id = ? AND data_type = ? ORDER BY updated_at DESC LIMIT 1",
-            (user_id, data_type)
-        )
+        # First try to get user-specific data
+        if user_id:
+            cursor.execute(
+                "SELECT data_json FROM trade_data WHERE user_id = ? AND data_type = ? ORDER BY updated_at DESC LIMIT 1",
+                (user_id, data_type)
+            )
+            result = cursor.fetchone()
+            if result:
+                return json.loads(result['data_json'])
         
+        # Fall back to latest automation data (for dashboard access to automated results)
+        cursor.execute(
+            "SELECT data_json FROM trade_data WHERE data_type = ? AND user_id LIKE 'automation@%' ORDER BY updated_at DESC LIMIT 1",
+            (data_type,)
+        )
         result = cursor.fetchone()
         if result:
             return json.loads(result['data_json'])
-        else:
-            return None
+            
+        # Final fallback: any data of this type
+        cursor.execute(
+            "SELECT data_json FROM trade_data WHERE data_type = ? ORDER BY updated_at DESC LIMIT 1",
+            (data_type,)
+        )
+        result = cursor.fetchone()
+        if result:
+            return json.loads(result['data_json'])
+            
+        return None
+        
     except Exception as e:
         logger.error(f"❌ Error retrieving latest data: {e}")
         return None
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 def clean_old_data(days_threshold=30):
     """
@@ -305,6 +345,7 @@ def clean_old_data(days_threshold=30):
     Returns:
         int: Number of records deleted
     """
+    conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -324,10 +365,147 @@ def clean_old_data(days_threshold=30):
         logger.error(f"❌ Error cleaning old data: {e}")
         return 0
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 # Initialize the database when the module is imported
 init_db()
+
+# =====================================
+# Token Storage Functions for Railway Persistence
+# =====================================
+
+def store_tokens(environment: str, access_token: str, refresh_token: str = None, 
+                token_scopes: str = None, expires_at: datetime = None) -> bool:
+    """
+    Store OAuth tokens persistently in database for Railway deployment compatibility
+    
+    Args:
+        environment (str): Environment name (DEVELOPMENT/PRODUCTION)
+        access_token (str): OAuth access token
+        refresh_token (str, optional): OAuth refresh token  
+        token_scopes (str, optional): Space-separated token scopes
+        expires_at (datetime, optional): Token expiration time
+        
+    Returns:
+        bool: Success status
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Use REPLACE to handle both insert and update
+        cursor.execute('''
+            REPLACE INTO tokens (environment, access_token, refresh_token, token_scopes, expires_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (environment, access_token, refresh_token, token_scopes, expires_at))
+        
+        conn.commit()
+        logger.info(f"✅ Tokens stored successfully for {environment}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error storing tokens for {environment}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_stored_tokens(environment: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Retrieve stored OAuth tokens from database
+    
+    Args:
+        environment (str): Environment name (DEVELOPMENT/PRODUCTION)
+        
+    Returns:
+        tuple: (access_token, refresh_token) - either may be None
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT access_token, refresh_token FROM tokens WHERE environment = ? ORDER BY updated_at DESC LIMIT 1",
+            (environment,)
+        )
+        
+        row = cursor.fetchone()
+        if row:
+            return row['access_token'], row['refresh_token']
+        else:
+            return None, None
+            
+    except Exception as e:
+        logger.error(f"❌ Error retrieving tokens for {environment}: {e}")
+        return None, None
+    finally:
+        if conn:
+            conn.close()
+
+def get_token_info(environment: str) -> Optional[Dict[str, Any]]:
+    """
+    Get comprehensive token information including scopes and expiration
+    
+    Args:
+        environment (str): Environment name
+        
+    Returns:
+        dict: Token information or None if not found
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT * FROM tokens WHERE environment = ? ORDER BY updated_at DESC LIMIT 1",
+            (environment,)
+        )
+        
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        else:
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Error retrieving token info for {environment}: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def delete_tokens(environment: str) -> bool:
+    """
+    Delete stored tokens for an environment
+    
+    Args:
+        environment (str): Environment name
+        
+    Returns:
+        bool: Success status
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM tokens WHERE environment = ?", (environment,))
+        conn.commit()
+        
+        deleted_count = cursor.rowcount
+        logger.info(f"🗑️ Deleted {deleted_count} token records for {environment}")
+        return deleted_count > 0
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting tokens for {environment}: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # Run cleanup periodically (you can call this from a scheduled task)
 # clean_old_data(30)  # Remove data older than 30 days

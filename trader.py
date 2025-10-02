@@ -214,6 +214,89 @@ class GrokResponseParser:
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.error(f"Failed to parse Grok response: {e}")
             return None
+    
+    @staticmethod
+    def build_spread_order_from_parsed_trade(parsed_trade: Dict) -> Optional[SpreadOrder]:
+        """
+        Build a SpreadOrder from parsed trade data (from database)
+        
+        Args:
+            parsed_trade: Dictionary containing parsed trade data
+            
+        Returns:
+            SpreadOrder object or None if build fails
+        """
+        try:
+            strategy_type = parsed_trade.get('strategy_type', '')
+            underlying = parsed_trade.get('underlying', 'SPY')
+            expiration = parsed_trade.get('expiration', '')
+            short_strike = parsed_trade.get('short_strike', 0.0)
+            long_strike = parsed_trade.get('long_strike', 0.0)
+            credit_received = parsed_trade.get('credit_received', 0.0)
+            
+            if not all([strategy_type, expiration, short_strike, long_strike]):
+                logger.error("Missing required trade data for order building")
+                return None
+            
+            legs = []
+            
+            if strategy_type == 'BULL_PUT_SPREAD':
+                # Bull Put Spread: Sell higher strike put, Buy lower strike put
+                short_symbol = OptionsSymbolBuilder.build_options_symbol(
+                    underlying, expiration, 'P', short_strike
+                )
+                long_symbol = OptionsSymbolBuilder.build_options_symbol(
+                    underlying, expiration, 'P', long_strike
+                )
+                
+                legs.append(OptionsLeg(
+                    instrument_type="Equity Option",
+                    symbol=short_symbol,
+                    quantity=1,
+                    action="Sell to Open"
+                ))
+                legs.append(OptionsLeg(
+                    instrument_type="Equity Option", 
+                    symbol=long_symbol,
+                    quantity=1,
+                    action="Buy to Open"
+                ))
+                
+            elif strategy_type == 'BEAR_CALL_SPREAD':
+                # Bear Call Spread: Sell lower strike call, Buy higher strike call
+                short_symbol = OptionsSymbolBuilder.build_options_symbol(
+                    underlying, expiration, 'C', short_strike
+                )
+                long_symbol = OptionsSymbolBuilder.build_options_symbol(
+                    underlying, expiration, 'C', long_strike
+                )
+                
+                legs.append(OptionsLeg(
+                    instrument_type="Equity Option",
+                    symbol=short_symbol,
+                    quantity=1,
+                    action="Sell to Open"
+                ))
+                legs.append(OptionsLeg(
+                    instrument_type="Equity Option",
+                    symbol=long_symbol,
+                    quantity=1,
+                    action="Buy to Open"
+                ))
+            else:
+                logger.error(f"Unsupported strategy type: {strategy_type}")
+                return None
+            
+            return SpreadOrder(
+                underlying_symbol=underlying,
+                legs=legs,
+                price=credit_received if credit_received > 0 else None,
+                price_effect="Credit" if credit_received > 0 else "Debit"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to build spread order: {e}")
+            return None
 
 class OptionsSymbolBuilder:
     """Build TastyTrade options symbols from strike/expiration data"""
@@ -308,11 +391,15 @@ class TastyTradeAPI:
         self.account_number = config.TT_ACCOUNT_NUMBER
         self.environment = config.ENVIRONMENT_NAME
         
+        # Set trading mode based on environment
+        self.trading_mode = "SANDBOX" if not config.IS_PRODUCTION else "PRODUCTION"
+        
         # Session token for current environment
         self.trading_token = None
         
         logger.info(f"🎯 TastyTrade API initialized in {self.environment} mode")
         logger.info(f"🔗 Base URL: {self.base_url}")
+        logger.info(f"🎯 Trading Mode: {self.trading_mode}")
         
     def get_trading_headers(self) -> Dict[str, str]:
         """Get authenticated headers for TRADING API requests"""
@@ -330,18 +417,18 @@ class TastyTradeAPI:
         """Authenticate specifically for trading operations"""
         try:
             if self.trading_mode == "SANDBOX":
-                # Sandbox: Use OAuth token from Flask session (same pattern as production)
+                # Sandbox: Use OAuth token from Flask session (unified token storage)
                 logger.info("🔐 Getting OAuth token for TastyTrade Sandbox trading...")
                 
-                # Try to get sandbox token from Flask session
+                # Try to get access token from Flask session (unified storage)
                 try:
                     from flask import session
-                    sandbox_token = session.get('sandbox_access_token')
-                    if sandbox_token:
-                        logger.info("✅ Found sandbox OAuth token in Flask session")
-                        return sandbox_token
+                    access_token = session.get('access_token')
+                    if access_token:
+                        logger.info("✅ Found OAuth token in Flask session for sandbox trading")
+                        return access_token
                     else:
-                        logger.error("❌ No sandbox OAuth token in Flask session - user needs to authenticate via OAuth")
+                        logger.error("❌ No OAuth token in Flask session - user needs to authenticate via OAuth")
                         return None
                 except (ImportError, RuntimeError):
                     logger.error("❌ Not running in Flask context or Flask not available")
@@ -364,6 +451,40 @@ class TastyTradeAPI:
                 
         except Exception as e:
             logger.error(f"❌ Trading authentication error: {e}")
+            return None
+    
+    def get_order_status(self, order_id: str) -> Optional[Dict]:
+        """
+        Get order status via REST API (fallback for websocket issues)
+        
+        Args:
+            order_id: Order ID to check
+            
+        Returns:
+            Order data or None if failed
+        """
+        try:
+            headers = self.get_trading_headers()
+            account_number = self.get_account_number()
+            
+            if not headers or not account_number:
+                logger.error("❌ Cannot check order status - missing auth or account")
+                return None
+            
+            # Get order status from TastyTrade API
+            url = f"{self.base_url}/accounts/{account_number}/orders/{order_id}"
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                order_data = response.json()
+                logger.info(f"📊 Order {order_id} status: {order_data.get('data', {}).get('status', 'Unknown')}")
+                return order_data.get('data')
+            else:
+                logger.error(f"❌ Failed to get order status: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"❌ Error checking order status: {e}")
             return None
     
     def get_account_number(self) -> str:

@@ -1,9 +1,9 @@
 """
 Integration script to add automated trading to the existing web application
-Updated to use clean trading_scheduler.py instead of redundant automated_trader.py
+Updated to use the new trading_scheduler.py for comprehensive 32DTE automation
 """
 
-from trading_scheduler import AutomatedTradingScheduler
+from trading_scheduler import AutomatedTradingScheduler, get_scheduler_instance
 import threading
 import logging
 
@@ -35,6 +35,18 @@ def start_automated_trading(use_simple_grok=False):
                 return True
             else:
                 logging.error("❌ Failed to start automated trading scheduler")
+                return False
+        elif not auto_trader_scheduler.is_running:
+            # Scheduler exists but not running - restart it
+            logging.info("🔄 Restarting existing automated trading scheduler...")
+            scheduler_thread = auto_trader_scheduler.start_scheduler()
+            
+            if scheduler_thread:
+                grok_type = "simple Grok-4" if use_simple_grok else "comprehensive Grok"
+                logging.info(f"🚀 Automated trading system restarted successfully using {grok_type}")
+                return True
+            else:
+                logging.error("❌ Failed to restart automated trading scheduler")
                 return False
         else:
             logging.info("ℹ️ Automated trading system already running")
@@ -108,6 +120,21 @@ def force_execute_trade():
     if auto_trader_scheduler:
         try:
             result = auto_trader_scheduler.force_execute_trade()
+            return result
+        except Exception as e:
+            return {'success': False, 'message': f'Error: {e}'}
+    else:
+        return {'success': False, 'message': 'Automated trading scheduler not initialized'}
+
+def get_latest_automated_trade():
+    """
+    Get the latest automated trade recommendation ready for execution
+    """
+    global auto_trader_scheduler
+    
+    if auto_trader_scheduler:
+        try:
+            result = auto_trader_scheduler.get_latest_trade_recommendation()
             return result
         except Exception as e:
             return {'success': False, 'message': f'Error: {e}'}

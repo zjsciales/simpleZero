@@ -9,4 +9,4 @@ python-dotenv
 pytz
 yfinance
 websocket-client
-websocket-client
+schedule

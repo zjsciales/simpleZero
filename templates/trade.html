@@ -179,6 +179,15 @@
                     </button>
                 </div>
                 
+                <div class="control-row">
+                    <button onclick="testOrderMessage()" id="test-order-btn" class="btn btn-outline" style="font-size: 12px;">
+                        🧪 Test Order
+                    </button>
+                    <button onclick="testFillMessage()" id="test-fill-btn" class="btn btn-outline" style="font-size: 12px;">
+                        🧪 Test Fill
+                    </button>
+                </div>
+                
                 <div id="streaming-status" class="streaming-status">
                     <div class="status-indicator offline">
                         <span class="status-dot"></span>
@@ -198,7 +207,7 @@
                         <span id="monitored-accounts">-</span>
                     </div>
                     <div class="info-item">
-                        <label>Messages:</label>
+                        <label>Order Events:</label>
                         <span id="message-count">0</span>
                     </div>
                     <div class="info-item">
@@ -209,7 +218,7 @@
             </div>
             
             <div id="streaming-messages" class="streaming-messages">
-                <h4>Recent Activity</h4>
+                <h4>📋 Order & Fill Activity</h4>
                 <div id="message-log" class="message-log">
                     <div class="message-item info">
                         <span class="timestamp">Ready</span>
@@ -701,7 +710,7 @@ async function toggleAccountStreaming() {
         }
     } catch (error) {
         console.error('Streaming toggle error:', error);
-        addMessageToLog('error', `Error: ${error.message}`);
+        addMessageToLog('error', 'Error: ' + error.message);
     } finally {
         btn.disabled = false;
     }
@@ -712,6 +721,8 @@ async function refreshStreamingStatus() {
         const response = await fetch('/api/account-streaming');
         const data = await response.json();
         
+        console.log('Status response:', data); // Debug logging
+        
         if (data.success) {
             updateStreamingStatus(data.status);
             addMessageToLog('info', 'Status refreshed');
@@ -720,11 +731,13 @@ async function refreshStreamingStatus() {
         }
     } catch (error) {
         console.error('Status refresh error:', error);
-        addMessageToLog('error', `Status refresh failed: ${error.message}`);
+        addMessageToLog('error', 'Status refresh failed: ' + error.message);
     }
 }
 
 function updateStreamingStatus(status) {
+    console.log('Updating status:', status); // Debug logging
+    
     const statusIndicator = document.querySelector('.status-indicator');
     const streamingInfo = document.getElementById('streaming-info');
     
@@ -737,21 +750,66 @@ function updateStreamingStatus(status) {
         document.getElementById('session-id').textContent = status.session_id || '-';
         document.getElementById('monitored-accounts').textContent = 
             status.accounts ? status.accounts.join(', ') : '-';
-        document.getElementById('message-count').textContent = status.messages_received || 0;
+        document.getElementById('message-count').textContent = 
+            status.recent_messages ? status.recent_messages.length : 0;
         document.getElementById('uptime').textContent = formatUptime(status.uptime || 0);
     } else {
         statusIndicator.className = 'status-indicator offline';
         statusIndicator.innerHTML = '<span class="status-dot"></span><span>Disconnected</span>';
         streamingInfo.style.display = 'none';
     }
+    
+    // Always update recent messages regardless of connection status
+    console.log('Recent messages:', status.recent_messages); // Debug logging
+    if (status.recent_messages && status.recent_messages.length > 0) {
+        updateRecentMessages(status.recent_messages);
+    } else {
+        // Show empty state if no messages
+        updateRecentMessages([]);
+    }
+}
+
+function updateRecentMessages(messages) {
+    const messageLog = document.getElementById('message-log');
+    
+    // Clear existing messages except the ready message
+    const readyMessage = messageLog.querySelector('.message-item.info');
+    messageLog.innerHTML = '';
+    
+    // Add recent messages from websocket
+    messages.forEach(msg => {
+        const messageItem = document.createElement('div');
+        messageItem.className = 'message-item ' + (msg.category || 'info');
+        
+        // Format timestamp
+        const msgTime = new Date(msg.timestamp);
+        const timeStr = msgTime.toLocaleTimeString();
+        
+        messageItem.innerHTML = 
+            '<span class="timestamp">' + timeStr + '</span>' +
+            '<span class="content">' + msg.message + '</span>';
+        
+        messageLog.appendChild(messageItem);
+    });
+    
+    // If no messages, add ready message back
+    if (messages.length === 0 && readyMessage) {
+        messageLog.appendChild(readyMessage);
+    } else if (messages.length === 0) {
+        messageLog.innerHTML = 
+            '<div class="message-item info">' +
+            '<span class="timestamp">Ready</span>' +
+            '<span class="content">Waiting for order and fill notifications...</span>' +
+            '</div>';
+    }
 }
 
 function formatUptime(seconds) {
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    if (seconds < 60) return seconds + 's';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
+    return hours + 'h ' + minutes + 'm';
 }
 
 function addMessageToLog(type, message) {
@@ -759,11 +817,10 @@ function addMessageToLog(type, message) {
     const timestamp = new Date().toLocaleTimeString();
     
     const messageItem = document.createElement('div');
-    messageItem.className = `message-item ${type}`;
-    messageItem.innerHTML = `
-        <span class="timestamp">${timestamp}</span>
-        <span class="content">${message}</span>
-    `;
+    messageItem.className = 'message-item ' + type;
+    messageItem.innerHTML = 
+        '<span class="timestamp">' + timestamp + '</span>' +
+        '<span class="content">' + message + '</span>';
     
     // Add to top
     messageLog.insertBefore(messageItem, messageLog.firstChild);
@@ -791,15 +848,46 @@ function stopStatusRefresh() {
     }
 }
 
+async function testOrderMessage() {
+    try {
+        const response = await fetch('/api/test-order-message', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            // Refresh status to show new message
+            await refreshStreamingStatus();
+        } else {
+            addMessageToLog('error', 'Failed to add test order message');
+        }
+    } catch (error) {
+        console.error('Test order message error:', error);
+        addMessageToLog('error', 'Error adding test order message');
+    }
+}
+
+async function testFillMessage() {
+    try {
+        const response = await fetch('/api/test-fill-message', { method: 'POST' });
+        const data = await response.json();
+        
+        if (data.success) {
+            // Refresh status to show new message
+            await refreshStreamingStatus();
+        } else {
+            addMessageToLog('error', 'Failed to add test fill message');
+        }
+    } catch (error) {
+        console.error('Test fill message error:', error);
+        addMessageToLog('error', 'Error adding test fill message');
+    }
+}
+
 // Initialize streaming status on page load
 document.addEventListener('DOMContentLoaded', function() {
     // Check initial streaming status
     refreshStreamingStatus();
 });
 </script>
-
-{% endblock %}
-</style>
 
 <script>
 // Trade validation and execution functionality
@@ -823,7 +911,7 @@ async function validateTrade() {
 }
 
 async function executeTrade() {
-    console.log('🚀 Executing trade...');
+    console.log('🚀 Executing real trade...');
     const resultsDiv = document.getElementById('executionResults');
     
     try {
@@ -838,24 +926,43 @@ async function executeTrade() {
         
         resultsDiv.style.display = 'block';
         if (result.success) {
-            resultsDiv.innerHTML = `
-                <h3>✅ Trade Executed Successfully</h3>
-                <p>Order ID: ${result.order_id}</p>
-                <p>Status: ${result.result.status}</p>
-                <p>Message: ${result.result.message}</p>
-            `;
+            // Show success with real order info
+            resultsDiv.innerHTML = 
+                '<h3>🎯 Real Trade Executed Successfully</h3>' +
+                '<p><strong>Order ID:</strong> ' + (result.order_id || 'N/A') + '</p>' +
+                '<p><strong>Status:</strong> ' + (result.result ? result.result.status : 'N/A') + '</p>' +
+                '<p><strong>Strategy:</strong> ' + (result.result ? result.result.strategy : 'N/A') + '</p>' +
+                '<p><strong>Message:</strong> ' + (result.result ? result.result.message : 'N/A') + '</p>';
+            
+            // If streaming was started, update the streaming UI
+            if (result.streaming_started) {
+                streamingActive = true;
+                const btn = document.getElementById('streaming-btn');
+                btn.textContent = '🟢 Stop Monitoring';
+                btn.className = 'btn btn-warning';
+                
+                // Start auto-refresh to catch order notifications
+                startStatusRefresh();
+                
+                // Add message about monitoring
+                addMessageToLog('success', 'Trade submitted! Real-time monitoring active - watching for order updates...');
+            }
+            
+            // Refresh status immediately to show any new messages
+            setTimeout(() => {
+                refreshStreamingStatus();
+            }, 1000);
+            
         } else {
-            resultsDiv.innerHTML = `
-                <h3>❌ Trade Execution Failed</h3>
-                <p>Error: ${result.error}</p>
-            `;
+            resultsDiv.innerHTML = 
+                '<h3>❌ Trade Execution Failed</h3>' +
+                '<p><strong>Error:</strong> ' + (result.error || 'Unknown error') + '</p>';
         }
     } catch (error) {
         resultsDiv.style.display = 'block';
-        resultsDiv.innerHTML = `
-            <h3>❌ Trade Execution Error</h3>
-            <p>Error: ${error.message}</p>
-        `;
+        resultsDiv.innerHTML = 
+            '<h3>❌ Trade Execution Error</h3>' +
+            '<p><strong>Error:</strong> ' + error.message + '</p>';
     }
 }
 </script>
