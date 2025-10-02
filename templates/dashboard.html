@@ -1253,8 +1253,21 @@
                     const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy_type;
                     
                     // Extract ticker and DTE from parsed trade or use fallbacks
-                    const ticker = data.parsed_trade?.underlying || data.parsed_trade?.underlying_symbol || data.ticker || 'SPY';
-                    const dte = data.parsed_trade?.dte || data.dte || 'Unknown';
+                    let ticker = 'SPY';
+                    let dte = 'Unknown';
+                    
+                    // Try to extract ticker and DTE from the trading recommendations structure
+                    if (data.parsed_trade && data.parsed_trade.trading_recommendations) {
+                        const rec = data.parsed_trade.trading_recommendations.primary_recommendation;
+                        if (rec && rec.trade_setup && rec.trade_setup.expiration) {
+                            // Calculate DTE from expiration date
+                            const expDate = new Date(rec.trade_setup.expiration);
+                            const today = new Date();
+                            const diffTime = expDate - today;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            dte = diffDays > 0 ? `${diffDays}DTE` : 'Expired';
+                        }
+                    }
                     const timestamp = data.timestamp || 'Recent';
                     const source = data.source || 'cache';
                     
