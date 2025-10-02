@@ -445,6 +445,19 @@
             color: #6c757d;
         }
 
+        .text-warning {
+            color: #856404;
+        }
+
+        .auth-warning {
+            margin-top: 8px;
+            padding: 6px 10px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
         .btn {
             padding: 10px 20px;
             border: none;
@@ -930,6 +943,9 @@
                     <button onclick="runMarketSentiment()" id="sentiment-btn" class="btn btn-secondary">
                         🌍 Sentiment Only
                     </button>
+                    <button onclick="window.location.href='/trade'" class="btn btn-outline">
+                        📊 View Trade Details
+                    </button>
                 </div>
                 
                 <div id="analysis-result" class="analysis-result" style="display: none;">
@@ -961,6 +977,9 @@
                             </div>
                             <div id="dte-discovery-info" class="dte-discovery-info" style="display: none;">
                                 <small class="text-muted">Next optimal expiration: <span id="optimal-dte">Loading...</span></small>
+                            </div>
+                            <div id="auth-warning" class="auth-warning" style="display: none;">
+                                <small class="text-warning">⚠️ Automation requires stored tokens. <button onclick="syncTokens()" class="btn-small">🔄 Sync Tokens</button></small>
                             </div>
                         </div>
                         
@@ -1233,13 +1252,19 @@
                     const resultDiv = document.getElementById('analysis-result');
                     const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy_type;
                     
+                    // Extract ticker and DTE from parsed trade or use fallbacks
+                    const ticker = data.parsed_trade?.underlying || data.parsed_trade?.underlying_symbol || data.ticker || 'SPY';
+                    const dte = data.parsed_trade?.dte || data.dte || 'Unknown';
+                    const timestamp = data.timestamp || 'Recent';
+                    const source = data.source || 'cache';
+                    
                     // Show the cached response with a header indicating it's cached
                     resultDiv.style.display = 'block';
                     resultDiv.innerHTML = `
                         <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 6px; padding: 10px; margin-bottom: 15px;">
-                            <strong>📋 Cached Analysis</strong> - Generated: ${data.timestamp} | Ticker: ${data.ticker} | DTE: ${data.dte}
+                            <strong>📋 Cached Analysis</strong> - Generated: ${timestamp} | Ticker: ${ticker} | DTE: ${dte}
                             <small style="display: block; color: #6c757d; margin-top: 5px;">
-                                This is the last analysis. Click "Run Grok Analysis" for a fresh analysis.
+                                Source: ${source} | Click "Run Grok Analysis" for a fresh analysis.
                             </small>
                         </div>
                         <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
@@ -1249,8 +1274,8 @@
                             <div style="margin-top: 20px; padding: 15px; background: #e7f5ff; border: 1px solid #74c0fc; border-radius: 6px;">
                                 <h4 style="color: #1864ab; margin-bottom: 10px;">🎯 Trade Signal Available</h4>
                                 <p style="margin-bottom: 15px;">
-                                    <strong>${data.parsed_trade.strategy_type.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying} 
-                                    (${data.parsed_trade.confidence}% confidence)
+                                    <strong>${data.parsed_trade.strategy_type.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying_symbol || data.parsed_trade.underlying || ticker} 
+                                    (${data.parsed_trade.confidence || 'High'}% confidence)
                                 </p>
                                 <a href="/trade" style="background: #228be6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600;">
                                     📊 View Trade Details
@@ -1259,7 +1284,7 @@
                         ` : ''}
                     `;
                     
-                    console.log('✅ Loaded cached Grok response');
+                    console.log('✅ Loaded cached Grok response', {ticker, dte, source});
                 } else {
                     console.log('ℹ️ No cached Grok response available');
                 }
@@ -1819,10 +1844,20 @@
             const tradeStatus = document.getElementById('trade-status');
             const executeTradeContainer = document.getElementById('execute-trade-container');
             const logContent = document.getElementById('automation-log-content');
+            const authWarning = document.getElementById('auth-warning');
             
             // Update main status
             isAutomationRunning = status.status === 'running';
             updateAutomationUI(status.status);
+            
+            // Show auth warning if tokens not available
+            if (authWarning) {
+                if (status.tokens_available === false) {
+                    authWarning.style.display = 'block';
+                } else {
+                    authWarning.style.display = 'none';
+                }
+            }
             
             // Update schedule info
             if (nextRunTime) {
@@ -1864,6 +1899,9 @@
             // Update log
             if (logContent) {
                 const logEntries = [];
+                if (status.auth_warning) {
+                    logEntries.push(`⚠️ ${status.auth_warning}`);
+                }
                 if (execStatus.last_completed) {
                     logEntries.push(`Last completed: ${new Date(execStatus.last_completed).toLocaleString()}`);
                 }
@@ -1927,6 +1965,31 @@
                 }
             } catch (error) {
                 console.log('DTE discovery info not available:', error);
+            }
+        }
+
+        // Token sync function
+        async function syncTokens() {
+            try {
+                const response = await fetch('/api/automation/sync-tokens', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('✅ Tokens synced successfully! Automation can now run.');
+                    await refreshAutomationStatus(); // Refresh to hide warning
+                } else {
+                    throw new Error(result.message || 'Token sync failed');
+                }
+                
+            } catch (error) {
+                console.error('Token sync error:', error);
+                alert(`❌ Error syncing tokens: ${error.message}`);
             }
         }
     </script>

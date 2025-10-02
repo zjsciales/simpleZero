@@ -815,7 +815,7 @@ def get_latest_trade_recommendation():
 
 @app.route('/api/cached-grok-response')
 def get_cached_grok_response():
-    """API endpoint to get the latest cached Grok response"""
+    """API endpoint to get the latest cached Grok response - prioritizes automation results"""
     try:
         # Get session ID
         session_id = get_user_session_id()
@@ -825,43 +825,62 @@ def get_cached_grok_response():
         
         print(f"🔍 Cached response debug: session_id={session_id}, user_id={user_id}")
         
-        # Get latest Grok response and parsed trade
-        raw_response = db_storage.get_latest_data('grok_raw_response', user_id=user_id)
-        parsed_trade = db_storage.get_latest_data('parsed_trade', user_id=user_id)
+        # First check for latest automation results (highest priority)
+        raw_response = db_storage.get_latest_data('grok_response')  # Gets automation results first
+        parsed_trade = db_storage.get_latest_data('parsed_trades')  # Gets automation results first
+        
+        # Legacy fallback for old data structure
+        if not raw_response:
+            raw_response = db_storage.get_latest_data('grok_raw_response', user_id=user_id)
+        if not parsed_trade:
+            parsed_trade = db_storage.get_latest_data('parsed_trade', user_id=user_id)
         
         print(f"🔍 Raw response found: {raw_response is not None}")
         print(f"🔍 Parsed trade found: {parsed_trade is not None}")
         
-        # If no data found for current user, get latest from any user
-        if not raw_response:
-            print("🔄 No data for current user, checking for latest from any user...")
+        # If no data found, get latest from any user (final fallback)
+        if not raw_response or not parsed_trade:
+            print("🔄 No recent data found, checking for latest from any user...")
             conn = db_storage.get_db_connection()
             cursor = conn.cursor()
             
-            # Get latest raw response from any user
-            cursor.execute("SELECT data_json FROM trade_data WHERE data_type = 'grok_raw_response' ORDER BY updated_at DESC LIMIT 1")
-            result = cursor.fetchone()
-            if result:
-                import json
-                raw_response = json.loads(result['data_json'])
-                print("✅ Found latest raw response from database")
+            if not raw_response:
+                # Check both new and old response types
+                cursor.execute("SELECT data_json FROM trade_data WHERE data_type IN ('grok_response', 'grok_raw_response') ORDER BY updated_at DESC LIMIT 1")
+                result = cursor.fetchone()
+                if result:
+                    import json
+                    raw_response = json.loads(result['data_json'])
+                    print("✅ Found latest raw response from database")
             
-            # Get latest parsed trade from any user  
-            cursor.execute("SELECT data_json FROM trade_data WHERE data_type = 'parsed_trade' ORDER BY updated_at DESC LIMIT 1")
-            result = cursor.fetchone()
-            if result:
-                import json
-                parsed_trade = json.loads(result['data_json'])
-                print("✅ Found latest parsed trade from database")
+            if not parsed_trade:
+                # Check both new and old trade types
+                cursor.execute("SELECT data_json FROM trade_data WHERE data_type IN ('parsed_trades', 'parsed_trade') ORDER BY updated_at DESC LIMIT 1")
+                result = cursor.fetchone()
+                if result:
+                    import json
+                    parsed_trade = json.loads(result['data_json'])
+                    print("✅ Found latest parsed trade from database")
             
             conn.close()
         
         if raw_response:
+            # Extract response text from different data structures
+            response_text = ''
+            timestamp = ''
+            
+            if isinstance(raw_response, dict):
+                response_text = raw_response.get('response', raw_response.get('data', ''))
+                timestamp = raw_response.get('timestamp', raw_response.get('updated_at', ''))
+            else:
+                response_text = str(raw_response)
+            
             response_data = {
                 'success': True,
-                'cached_response': raw_response.get('response', ''),
-                'timestamp': raw_response.get('timestamp', ''),
-                'parsed_trade': parsed_trade
+                'cached_response': response_text,
+                'timestamp': timestamp,
+                'parsed_trade': parsed_trade,
+                'source': 'automation' if 'automation@' in str(raw_response) else 'user'
             }
         else:
             response_data = {
@@ -1199,6 +1218,14 @@ def automation_status():
         # Get basic status
         status = get_auto_trader_status()
         
+        # Check if tokens are available for automation (database storage)
+        try:
+            from db_storage import get_stored_tokens
+            access_token, refresh_token = get_stored_tokens(config.ENVIRONMENT_NAME)
+            tokens_available = bool(access_token)
+        except Exception:
+            tokens_available = False
+        
         # Try to get latest trade recommendation
         try:
             latest_trade = get_latest_automated_trade()
@@ -1222,7 +1249,9 @@ def automation_status():
             'paper_trading': status.get('paper_trading', True),
             'detailed_status': status.get('detailed_status', {}),
             'next_scheduled_run': status.get('detailed_status', {}).get('next_scheduled_run'),
-            'latest_trade': status.get('latest_trade')
+            'latest_trade': status.get('latest_trade'),
+            'tokens_available': tokens_available,
+            'auth_warning': 'No tokens stored for automation - re-authenticate to enable' if not tokens_available else None
         })
         
     except Exception as e:
@@ -1231,6 +1260,48 @@ def automation_status():
             'success': False,
             'message': f'Failed to get automation status: {e}',
             'status': 'error'
+        })
+
+@app.route('/api/automation/sync-tokens', methods=['POST'])
+def sync_automation_tokens():
+    """Sync current session tokens to database for automation access"""
+    try:
+        if 'access_token' not in session:
+            return jsonify({'success': False, 'message': 'No session tokens to sync'})
+        
+        # Get tokens from session
+        access_token = session.get('access_token')
+        refresh_token = session.get('refresh_token')
+        token_scopes = session.get('token_scopes', '')
+        
+        if not access_token:
+            return jsonify({'success': False, 'message': 'No access token in session'})
+        
+        # Store in database for automation access
+        from db_storage import store_tokens
+        success = store_tokens(
+            environment=config.ENVIRONMENT_NAME,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_scopes=token_scopes
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Tokens synced to database - automation can now access them'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to store tokens in database'
+            })
+            
+    except Exception as e:
+        print(f"💥 Exception syncing tokens: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'Error syncing tokens: {e}'
         })
 
 @app.route('/api/automation/start', methods=['POST'])
