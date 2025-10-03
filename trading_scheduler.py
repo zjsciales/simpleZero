@@ -385,11 +385,14 @@ class AutomatedTradingScheduler:
     def _verify_authentication(self) -> bool:
         """Verify TastyTrade authentication is valid"""
         try:
-            # Check if we have a valid access token
+            # Check if we have a valid access token from database storage (automation context)
             access_token, refresh_token = get_tokens()
             if not access_token:
-                self.logger.error("❌ No access token available")
+                self.logger.error("❌ No access token available in database storage")
+                self.logger.error("💡 Automation requires stored tokens - user must authenticate via web UI first")
                 return False
+            
+            self.logger.info(f"✅ Found access token in database for {config.ENVIRONMENT_NAME}")
             
             # Validate the token
             is_valid = validate_token(access_token)
@@ -398,6 +401,7 @@ class AutomatedTradingScheduler:
             else:
                 self.logger.warning("⚠️ Access token validation failed - may need refresh")
                 # Continue anyway as token might still work for some operations
+                self.logger.info("🔄 Continuing with potentially stale token (may refresh during API calls)")
             
             return True
             
@@ -410,13 +414,16 @@ class AutomatedTradingScheduler:
                               parsed_trades: dict) -> dict:
         """Store comprehensive analysis results in database"""
         try:
-            # Create session ID for this automated analysis
-            session_id = f"auto_{analysis_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            # Create session ID and user ID for this automated analysis
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            session_id = f"auto_{analysis_type}_{timestamp}"
+            user_id = f"automation@{config.ENVIRONMENT_NAME.lower()}_{timestamp}"
             
             # Store market data
             db_storage.store_data(
                 data_type='market_data',
                 data=market_data,
+                user_id=user_id,
                 session_id=session_id,
                 ticker=ticker,
                 dte=dte
@@ -430,6 +437,7 @@ class AutomatedTradingScheduler:
                     'prompt': analysis_prompt,
                     'analysis_type': analysis_type
                 },
+                user_id=user_id,
                 session_id=session_id,
                 ticker=ticker,
                 dte=dte
@@ -439,6 +447,7 @@ class AutomatedTradingScheduler:
             db_storage.store_data(
                 data_type='parsed_trades',
                 data=parsed_trades,
+                user_id=user_id,
                 session_id=session_id,
                 ticker=ticker,
                 dte=dte
@@ -454,17 +463,20 @@ class AutomatedTradingScheduler:
                     'paper_trading': self.paper_trading,
                     'status': 'ready_for_execution'
                 },
+                user_id=user_id,
                 session_id=session_id,
                 ticker=ticker,
                 dte=dte
             )
             
             self.logger.info(f"💾 Analysis results stored with session ID: {session_id}")
+            self.logger.info(f"🤖 Automation user ID: {user_id}")
             self.logger.info(f"✅ Results available to dashboard via latest data lookup")
             
             return {
                 'success': True,
                 'session_id': session_id,
+                'user_id': user_id,
                 'storage_timestamp': datetime.now().isoformat()
             }
             

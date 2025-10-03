@@ -1066,55 +1066,6 @@
         let promptUpdateTimeout;
         let isLoadingMarketData = false;
 
-        // Load cached Grok response on page load
-        async function loadCachedGrokResponse() {
-            try {
-                const response = await fetch('/api/cached-grok-response');
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.success && data.cached_response) {
-                        const resultDiv = document.getElementById('analysis-result');
-                        const hasTradeSignal = data.parsed_trade && data.parsed_trade.strategy_type;
-                        
-                        // Debug logging for trade button visibility
-                        console.log('🔍 Cached response data:', data);
-                        console.log('🔍 Parsed trade available:', !!data.parsed_trade);
-                        console.log('🔍 Parsed trade structure:', data.parsed_trade);
-                        console.log('🔍 Trade signal condition (hasTradeSignal):', hasTradeSignal);
-                        
-                        resultDiv.style.display = 'block';
-                        resultDiv.innerHTML = `
-                            <div style="background: #fffbf0; border: 1px solid #ffd43b; padding: 10px; border-radius: 4px; margin-bottom: 15px;">
-                                <strong>📋 Cached Response</strong> (${data.timestamp}) - Run new analysis to update
-                            </div>
-                            <div style="white-space: pre-wrap; font-family: inherit; line-height: 1.6;">
-                                ${data.cached_response}
-                            </div>
-                            ${hasTradeSignal ? `
-                                <div style="margin-top: 20px; padding: 15px; background: #e7f5ff; border: 1px solid #74c0fc; border-radius: 6px;">
-                                    <h4 style="color: #1864ab; margin-bottom: 10px;">🎯 Trade Signal Generated</h4>
-                                    <p style="margin-bottom: 15px;">
-                                        <strong>${data.parsed_trade.strategy_type.replace('_', ' ')}</strong> on ${data.parsed_trade.underlying} 
-                                        (${data.parsed_trade.confidence}% confidence)
-                                    </p>
-                                    <a href="/trade" style="background: #228be6; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-weight: 600;">
-                                        📊 View Trade Details
-                                    </a>
-                                </div>
-                            ` : `
-                                <div style="margin-top: 20px; padding: 15px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 6px;">
-                                    <p style="color: #6b7280; margin: 0;">No trade signal detected in cached response.</p>
-                                    <p style="color: #6b7280; margin: 0; font-size: 14px;">Debug: hasTradeSignal=${hasTradeSignal}, parsed_trade=${!!data.parsed_trade}</p>
-                                </div>
-                            `}
-                        `;
-                    }
-                }
-            } catch (error) {
-                console.log('No cached response available:', error);
-            }
-        }
-
         async function loadMarketData() {
             // Prevent multiple concurrent calls
             if (isLoadingMarketData) {
