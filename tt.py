@@ -3174,18 +3174,105 @@ def get_current_price(ticker):
         return None
 
 
+def get_customer_accounts():
+    """
+    Get customer account information from TastyTrade API
+    This is needed in production to dynamically fetch account numbers
+    
+    Returns:
+    List of account dictionaries or None if error
+    """
+    try:
+        print(f"🔍 Getting customer accounts...")
+        
+        # Get authentication headers
+        headers = get_authenticated_headers()
+        if not headers:
+            print("❌ No authentication available for customer accounts")
+            return None
+        
+        # TastyTrade customer accounts endpoint
+        accounts_url = f"{TT_BASE_URL}/customers/me/accounts"
+        print(f"🔗 Calling TastyTrade Customer Accounts API: {accounts_url}")
+        
+        response = requests.get(accounts_url, headers=headers)
+        print(f"📡 Response Status: {response.status_code}")
+        
+        if response.status_code == 401:
+            print("🔒 Authentication failed for customer accounts endpoint")
+            
+            # Try automatic token refresh
+            print("🔄 Attempting automatic token refresh...")
+            refresh_result = refresh_access_token()
+            if refresh_result and refresh_result.get('access_token'):
+                print("✅ Token refresh successful, retrying accounts...")
+                headers = get_authenticated_headers()
+                response = requests.get(accounts_url, headers=headers)
+                print(f"📡 Retry Response Status: {response.status_code}")
+            else:
+                print("❌ Token refresh failed, user needs to re-authenticate")
+                return None
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"📊 Customer accounts data received")
+            
+            # Extract accounts from TastyTrade response
+            if 'data' in data and 'items' in data['data']:
+                accounts = data['data']['items']
+                print(f"✅ Found {len(accounts)} account(s)")
+                
+                for i, account in enumerate(accounts):
+                    account_number = account.get('account', {}).get('account-number', 'Unknown')
+                    account_type = account.get('account', {}).get('account-type-name', 'Unknown')
+                    is_closed = account.get('account', {}).get('is-closed', False)
+                    print(f"   {i+1}. Account: {account_number} ({account_type}) {'[CLOSED]' if is_closed else '[ACTIVE]'}")
+                
+                return accounts
+            else:
+                print(f"❌ No accounts data found in response")
+                return None
+        
+        else:
+            print(f"❌ Failed to get customer accounts: {response.status_code}")
+            print(f"🔄 Response preview: {response.text[:200]}...")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error getting customer accounts: {str(e)}")
+        return None
+
+
 def get_account_balances(account_number=None):
     """
     Get account balance information from TastyTrade API
     
     Parameters:
-    account_number: Account number (uses config default if None)
+    account_number: Account number (uses config default if None, fetches from API in production)
     
     Returns:
     Dict with balance information or None if error
     """
     if account_number is None:
         account_number = config.TT_ACCOUNT_NUMBER
+        
+        # In production, account number is not hardcoded, so fetch it from API
+        if not account_number:
+            print(f"🔍 No account number in config, fetching from API...")
+            accounts = get_customer_accounts()
+            if accounts and len(accounts) > 0:
+                # Use the first active account
+                for account in accounts:
+                    account_info = account.get('account', {})
+                    if not account_info.get('is-closed', False):
+                        account_number = account_info.get('account-number')
+                        print(f"✅ Using account: {account_number}")
+                        break
+                
+                if not account_number and accounts:
+                    # Fallback to first account even if closed
+                    account_number = accounts[0].get('account', {}).get('account-number')
+                    print(f"⚠️ Using first available account: {account_number}")
         
     if not account_number:
         print("❌ No account number available for balance lookup")
