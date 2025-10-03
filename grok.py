@@ -1453,7 +1453,7 @@ ${strike:.0f} | P | {put_volume} | {put_oi} | ${put_bid:.2f}/${put_ask:.2f} | {p
 
 ## Hey Grok! 👋
 
-You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. Our overall goal is to create stable income. To do this, we want to collect premium on vertical spreads that are very likely to expire worthless. We provided real-time data (below), can you please use that to select a call or put spread vertical that will generate income and is likely to expire worthless? The intended output is a JSON package that perfectly matches the examples at the end of our prompt.
+You're an expert options trader analyzing {ticker} options for a {dte_display} trading opportunity. Our overall goal is to create stable income by collecting premium on vertical spreads that are very likely to expire worthless. We provided real-time data (below), can you please use that to select a call or put spread vertical that will generate income and is likely to expire worthless? The intended output is a JSON package that perfectly matches the examples at the end of our prompt.
 
 We need an actionable trade, don't be afraid to give real trade advice that we can use in the market today.  
 

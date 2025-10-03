@@ -202,10 +202,10 @@ def get_oauth_authorization_url():
     }
     
     # Use the correct TastyTrade OAuth authorization endpoints from documentation
-    # Production: https://my.tastyworks.com/auth.html
+    # Production: https://my.tastytrade.com/auth.html
     # Sandbox: https://cert-my.staging-tasty.works/auth.html
     if config.IS_PRODUCTION:
-        base_url = "https://my.tastyworks.com/auth.html"
+        base_url = "https://my.tastytrade.com/auth.html"
     else:
         base_url = "https://cert-my.staging-tasty.works/auth.html"
     
