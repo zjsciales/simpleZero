@@ -3174,5 +3174,101 @@ def get_current_price(ticker):
         return None
 
 
+def get_account_balances(account_number=None):
+    """
+    Get account balance information from TastyTrade API
+    
+    Parameters:
+    account_number: Account number (uses config default if None)
+    
+    Returns:
+    Dict with balance information or None if error
+    """
+    if account_number is None:
+        account_number = config.TT_ACCOUNT_NUMBER
+        
+    if not account_number:
+        print("❌ No account number available for balance lookup")
+        return None
+    
+    try:
+        print(f"💰 Getting account balance for {account_number}...")
+        
+        # Get authentication headers
+        headers = get_authenticated_headers()
+        if not headers:
+            print("❌ No authentication available for account balance")
+            return None
+        
+        # TastyTrade account balances endpoint
+        balance_url = f"{TT_BASE_URL}/accounts/{account_number}/balances"
+        print(f"🔗 Calling TastyTrade Account Balances API: {balance_url}")
+        
+        response = requests.get(balance_url, headers=headers)
+        print(f"📡 Response Status: {response.status_code}")
+        
+        if response.status_code == 401:
+            print("🔒 Authentication failed for account balance endpoint")
+            
+            # Try automatic token refresh
+            print("🔄 Attempting automatic token refresh...")
+            refresh_result = refresh_access_token()
+            if refresh_result and refresh_result.get('access_token'):
+                print("✅ Token refresh successful, retrying balance...")
+                headers = get_authenticated_headers()
+                response = requests.get(balance_url, headers=headers)
+                print(f"📡 Retry Response Status: {response.status_code}")
+            else:
+                print("❌ Token refresh failed, user needs to re-authenticate")
+                return None
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"💰 Account balance data received for {account_number}")
+            
+            # Extract balance data from TastyTrade response
+            if 'data' in data:
+                balance_data = data['data']
+                
+                # Parse key balance fields
+                cash_balance = float(balance_data.get('cash-balance', 0))
+                equity_buying_power = float(balance_data.get('equity-buying-power', 0))
+                derivative_buying_power = float(balance_data.get('derivative-buying-power', 0))  # Options Buying Power
+                net_liquidating_value = float(balance_data.get('net-liquidating-value', 0))
+                long_equity_value = float(balance_data.get('long-equity-value', 0))
+                margin_equity = float(balance_data.get('margin-equity', 0))
+                
+                print(f"✅ Balance Summary:")
+                print(f"   💵 Cash Balance: ${cash_balance:,.2f}")
+                print(f"   📈 Equity Buying Power: ${equity_buying_power:,.2f}")
+                print(f"   📊 Options Buying Power: ${derivative_buying_power:,.2f}")
+                print(f"   💎 Net Liquidating Value: ${net_liquidating_value:,.2f}")
+                
+                return {
+                    'success': True,
+                    'account_number': account_number,
+                    'cash_balance': cash_balance,
+                    'equity_buying_power': equity_buying_power,
+                    'options_buying_power': derivative_buying_power,  # This is what TastyTrade UI shows
+                    'portfolio_value': net_liquidating_value,
+                    'long_equity_value': long_equity_value,
+                    'margin_equity': margin_equity,
+                    'raw_data': balance_data,
+                    'updated_at': balance_data.get('updated-at', '')
+                }
+            else:
+                print(f"❌ No balance data found in response")
+                return None
+        
+        else:
+            print(f"❌ Failed to get account balance: {response.status_code}")
+            print(f"🔄 Response preview: {response.text[:200]}...")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error getting account balance: {str(e)}")
+        return None
+
+
 if __name__ == "__main__":
     main()

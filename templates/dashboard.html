@@ -847,18 +847,18 @@
             <div class="account-details">
                 <div class="account-item">
                     <span class="account-label">Account</span>
-                    <span class="account-value">Paper Trading Active</span>
+                    <span class="account-value" id="account-type">{{ 'Production Trading' if config.IS_PRODUCTION else 'Sandbox Trading' }}</span>
                 </div>
                 <div class="account-item">
-                    <span class="account-label">Buying Power</span>
-                    <span class="account-value">$199,854.36</span>
+                    <span class="account-label">Options Buying Power</span>
+                    <span class="account-value" id="buying-power">Loading...</span>
                 </div>
                 <div class="account-item">
                     <span class="account-label">Portfolio Value</span>
-                    <span class="account-value">$99,927.18</span>
+                    <span class="account-value" id="portfolio-value">Loading...</span>
                 </div>
             </div>
-            <button class="refresh-btn" onclick="location.reload()">🔄 Refresh</button>
+            <button class="refresh-btn" onclick="loadAccountBalance()">🔄 Refresh</button>
         </div>
     </div>
 
@@ -1065,6 +1065,54 @@
     <script>
         let promptUpdateTimeout;
         let isLoadingMarketData = false;
+
+        async function loadAccountBalance() {
+            try {
+                console.log('🔄 Loading account balance...');
+                
+                // Update UI to show loading state
+                document.getElementById('buying-power').textContent = 'Loading...';
+                document.getElementById('portfolio-value').textContent = 'Loading...';
+                
+                const response = await fetch('/api/account-balance');
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('✅ Account balance data:', data);
+                    
+                    if (data.success) {
+                        // Format currency values
+                        const formatCurrency = (value) => {
+                            return new Intl.NumberFormat('en-US', {
+                                style: 'currency',
+                                currency: 'USD',
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            }).format(value);
+                        };
+                        
+                        // Update the UI with real balance data
+                        document.getElementById('buying-power').textContent = formatCurrency(data.options_buying_power);
+                        document.getElementById('portfolio-value').textContent = formatCurrency(data.portfolio_value);
+                        
+                        console.log(`💰 Options Buying Power: ${formatCurrency(data.options_buying_power)}`);
+                        console.log(`💎 Portfolio Value: ${formatCurrency(data.portfolio_value)}`);
+                        console.log(`💵 Cash Balance: ${formatCurrency(data.cash_balance)}`);
+                    } else {
+                        console.error('❌ Failed to load account balance:', data.error);
+                        document.getElementById('buying-power').textContent = 'Error';
+                        document.getElementById('portfolio-value').textContent = 'Error';
+                    }
+                } else {
+                    console.error('❌ Account balance API error:', response.status);
+                    document.getElementById('buying-power').textContent = 'Error';
+                    document.getElementById('portfolio-value').textContent = 'Error';
+                }
+            } catch (error) {
+                console.error('❌ Error loading account balance:', error);
+                document.getElementById('buying-power').textContent = 'Error';
+                document.getElementById('portfolio-value').textContent = 'Error';
+            }
+        }
 
         async function loadMarketData() {
             // Prevent multiple concurrent calls
@@ -1605,7 +1653,13 @@
                     updateAuthStatus(isAuthenticated);
                     
                     if (isAuthenticated) {
-                        console.log('Authenticated, loading market data...');
+                        console.log('Authenticated, loading all data...');
+                        
+                        // Load account balance
+                        console.log('Loading account balance...');
+                        loadAccountBalance();
+                        
+                        // Load market data
                         loadMarketData();
                         
                         // Load available DTEs for the default ticker
@@ -1619,7 +1673,10 @@
                         
                         // Initialize prompt will be called after DTEs load via updatePrompt()
                     } else {
-                        console.log('Not authenticated, skipping market data load and prompt generation');
+                        console.log('Not authenticated, skipping data loads');
+                        // Show placeholder values when not authenticated
+                        document.getElementById('buying-power').textContent = 'Not Authenticated';
+                        document.getElementById('portfolio-value').textContent = 'Not Authenticated';
                         // Set unauthenticated message for prompt
                         const promptDisplay = document.getElementById('prompt-display');
                         if (promptDisplay) {

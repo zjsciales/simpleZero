@@ -3,7 +3,7 @@ from flask import Flask, render_template, request, redirect, session, jsonify
 from datetime import datetime
 import os
 import logging
-from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date
+from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date, get_account_balances
 import config
 import uuid
 import db_storage  # Import our database storage module
@@ -83,7 +83,8 @@ def dashboard():
     set_access_token(token)
     return render_template('dashboard.html',
                          environment=config.ENVIRONMENT_NAME,
-                         authenticated=True)
+                         authenticated=True,
+                         config=config)
 
 @app.route('/login')
 def login():
@@ -251,6 +252,48 @@ def api_market_data():
     except Exception as e:
         print(f"💥 Exception in market data retrieval: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/account-balance')
+def api_account_balance():
+    """API endpoint for account balance data"""
+    try:
+        print("🔍 Flask session check for account balance:")
+        print(f"  - Has access_token: {'access_token' in session}")
+        print(f"  - Environment: {config.ENVIRONMENT_NAME}")
+        
+        # Check authentication first
+        if 'access_token' not in session:
+            print("❌ No access token in session")
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Set tokens in tt.py module
+        print("🔄 Setting tokens in tt.py module for balance lookup")
+        if 'access_token' in session:
+            set_access_token(session['access_token'])
+        if 'refresh_token' in session:
+            set_refresh_token(session['refresh_token'])
+        
+        # Get account balance data
+        print("💰 Calling get_account_balances() function")
+        from tt import get_account_balances
+        balance_data = get_account_balances()
+        
+        if balance_data and balance_data.get('success'):
+            print(f"✅ Account balance retrieved successfully")
+            return jsonify(balance_data)
+        else:
+            print(f"❌ Failed to get account balance")
+            return jsonify({
+                'success': False,
+                'error': 'Could not retrieve account balance'
+            }), 500
+            
+    except Exception as e:
+        print(f"💥 Exception in account balance retrieval: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/options-chain')
 def api_options_chain():
