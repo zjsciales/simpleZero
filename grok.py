@@ -191,8 +191,189 @@ class GrokAnalyzer:
         
         print(f"🌍 Requesting market sentiment analysis for {expiration_date}...")
         
+        # Get basic market data for sentiment analysis with proper fallback chain
+        def get_spy_data_with_fallback():
+            """Get SPY data with TastyTrade -> yfinance -> market-derived fallback chain"""
+            from tt_data import get_market_overview, get_ticker_recent_data
+            from market_data import get_day_changes_yfinance
+            
+            ticker = "SPY"
+            spy_price = None
+            spy_change = None
+            price_change_pct = None
+            volatility_level = "Unknown"
+            
+            # Step 1: Try TastyTrade data first
+            print("🔄 Attempting TastyTrade SPY data fetch...")
+            try:
+                spy_recent_data = get_ticker_recent_data(ticker=ticker, period='1d', interval='1m', last_minutes=10)
+                if spy_recent_data and spy_recent_data.get('current_price'):
+                    spy_price = spy_recent_data['current_price']
+                    spy_change = spy_recent_data.get('price_change_pct', 0.0)
+                    price_change_pct = spy_change
+                    volatility_level = "High" if abs(price_change_pct) > 2.0 else "Elevated" if abs(price_change_pct) > 1.0 else "Low"
+                    print(f"✅ TastyTrade SPY data: ${spy_price:.2f} ({spy_change:+.2f}%)")
+                    return spy_price, spy_change, price_change_pct, volatility_level
+                else:
+                    print("⚠️ TastyTrade SPY data incomplete or missing")
+            except Exception as e:
+                print(f"⚠️ TastyTrade SPY data failed: {e}")
+            
+            # Step 2: Fallback to yfinance
+            print("🔄 Falling back to yfinance for SPY data...")
+            try:
+                yf_data = get_day_changes_yfinance([ticker])
+                if yf_data and ticker in yf_data:
+                    spy_data = yf_data[ticker]
+                    spy_price = spy_data.get('current_price', 0.0)
+                    spy_change = spy_data.get('day_change_percent', 0.0)
+                    price_change_pct = spy_change
+                    
+                    if spy_price > 0:  # Valid data
+                        volatility_level = "High" if abs(price_change_pct) > 2.0 else "Elevated" if abs(price_change_pct) > 1.0 else "Low"
+                        print(f"✅ yfinance SPY data: ${spy_price:.2f} ({spy_change:+.2f}%)")
+                        return spy_price, spy_change, price_change_pct, volatility_level
+                    else:
+                        print("⚠️ yfinance SPY data invalid (zero price)")
+                else:
+                    print("⚠️ yfinance SPY data missing from response")
+            except Exception as e:
+                print(f"⚠️ yfinance SPY data failed: {e}")
+            
+            # Step 3: Market-derived fallback (get recent market close if possible)
+            print("🔄 Using market-derived fallback for SPY...")
+            try:
+                # Try to get a reasonable SPY price from market indices or recent trading
+                import yfinance as yf
+                spy_ticker = yf.Ticker("SPY")
+                info = spy_ticker.info
+                
+                # Try multiple price sources from yfinance info
+                fallback_price = (info.get('regularMarketPrice') or 
+                                info.get('previousClose') or 
+                                info.get('open') or 
+                                565.0)  # Final fallback to recent historical range
+                
+                spy_price = fallback_price
+                spy_change = 0.0  # Unknown change
+                price_change_pct = 0.0
+                volatility_level = "Unknown"
+                
+                print(f"✅ Market-derived SPY fallback: ${spy_price:.2f} (change unknown)")
+                return spy_price, spy_change, price_change_pct, volatility_level
+                
+            except Exception as e:
+                print(f"⚠️ Market-derived fallback failed: {e}")
+                
+            # Final fallback - should never reach here in normal operation
+            print("❌ All SPY data sources failed - using emergency fallback")
+            return 565.0, 0.0, 0.0, "Unknown"
+        
+        def get_global_markets_with_fallback():
+            """Get global markets data with proper fallback"""
+            from tt_data import get_market_overview
+            from market_data import get_day_changes_yfinance
+            
+            # Try TastyTrade first
+            try:
+                global_markets = get_market_overview() or {}
+                if global_markets:
+                    print(f"✅ TastyTrade global markets: {len(global_markets)} symbols")
+                    return global_markets
+                else:
+                    print("⚠️ TastyTrade global markets empty")
+            except Exception as e:
+                print(f"⚠️ TastyTrade global markets failed: {e}")
+            
+            # Fallback to yfinance for major indices
+            print("🔄 Falling back to yfinance for major market data...")
+            try:
+                major_symbols = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'QQQ', 'IWM']
+                yf_data = get_day_changes_yfinance(major_symbols)
+                
+                if yf_data:
+                    # Convert yfinance format to global markets format
+                    global_markets = {}
+                    for symbol, data in yf_data.items():
+                        if data.get('current_price', 0) > 0:  # Valid data
+                            global_markets[symbol] = {
+                                'current_price': data['current_price'],
+                                'day_change_percent': data['day_change_percent']
+                            }
+                    
+                    print(f"✅ yfinance global markets: {len(global_markets)} symbols")
+                    return global_markets
+                else:
+                    print("⚠️ yfinance global markets failed")
+            except Exception as e:
+                print(f"⚠️ yfinance global markets error: {e}")
+            
+            return {}
+        
+        try:
+            # Set ticker for sentiment analysis
+            ticker = "SPY"
+            
+            # Get SPY data with proper fallback chain
+            spy_price, spy_change, price_change_pct, volatility_level = get_spy_data_with_fallback()
+            
+            # Get global market overview with fallback
+            global_markets = get_global_markets_with_fallback()
+            
+            # Extract SPY giants from global markets (common big cap stocks)
+            spy_giants = {}
+            major_stocks = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA']
+            for stock in major_stocks:
+                if stock in global_markets:
+                    spy_giants[stock] = global_markets[stock]
+            
+            # If no spy_giants found, try yfinance fallback for these specific stocks
+            if not spy_giants:
+                print("🔄 No SPY giants from global markets, trying yfinance...")
+                try:
+                    from market_data import get_day_changes_yfinance
+                    giants_data = get_day_changes_yfinance(major_stocks)
+                    
+                    for stock in major_stocks:
+                        if stock in giants_data and giants_data[stock].get('current_price', 0) > 0:
+                            spy_giants[stock] = {
+                                'current_price': giants_data[stock]['current_price'],
+                                'day_change_percent': giants_data[stock]['day_change_percent']
+                            }
+                    
+                    if spy_giants:
+                        print(f"✅ yfinance SPY giants: {len(spy_giants)} stocks")
+                    else:
+                        print("⚠️ yfinance SPY giants failed - no valid data")
+                        
+                except Exception as e:
+                    print(f"⚠️ yfinance SPY giants error: {e}")
+                
+        except Exception as e:
+            print(f"❌ Critical error in sentiment data gathering: {e}")
+            # Emergency fallback - should never happen
+            ticker = "SPY"
+            spy_price = 565.0
+            spy_change = 0.0
+            price_change_pct = 0.0
+            volatility_level = "Unknown"
+            global_markets = {}
+            spy_giants = {}
+        
         # Create sentiment analysis prompt
-        sentiment_prompt = f"""Hey Grok! You're an options trading expert who has been collecting income from call/put vertical spreads for many years. We need help analyzing opportunities for SPY expiring on {expiration_date}.
+        sentiment_prompt = f"""Hey Grok! You're an options trading expert who has been collecting income from call/put vertical spreads for many years. We need help analyzing opportunities for SPY expiring on {expiration_date}. Here's some basic, real-time data, to help get us started.
+
+Current Date: {datetime.now().strftime('%A, %B %d, %Y')} at {datetime.now().strftime('%I:%M %p EST')}.
+        
+## Market Overview
+- **{ticker}:** ${spy_price:.2f} ({spy_change:+.2f}%)
+- **Volatility:** {volatility_level} (based on {abs(price_change_pct):.1f}% daily move)
+
+### Global Markets Overview
+{"".join([f"- **{symbol}:** {'$' + f'{data.get('current_price', 0):.2f}' if data.get('current_price') is not None else 'N/A'} ({'(' + f'{data.get('day_change_percent', 0):+.2f}%' + ')' if data.get('day_change_percent') is not None else 'N/A'})" + chr(10) for symbol, data in global_markets.items()]) if global_markets else "Market data unavailable"}
+
+### SPY Giants Overview  
+{"".join([f"- **{symbol}:** {'$' + f'{data.get('current_price', 0):.2f}' if data.get('current_price') is not None else 'N/A'} ({'(' + f'{data.get('day_change_percent', 0):+.2f}%' + ')' if data.get('day_change_percent') is not None else 'N/A'})" + chr(10) for symbol, data in spy_giants.items()]) if spy_giants else "SPY components data unavailable"}
 
 Can you analyze market sentiment and give us a brief, pointed 500 word summary that includes:
 
