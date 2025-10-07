@@ -293,9 +293,15 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ SQLite sample data insertion failed: {e}")
     
-    def execute_query(self, query: str, params: tuple = None, fetch: bool = True) -> Optional[List[Dict]]:
+    def execute_query(self, query: str, params=None, fetch: bool = True) -> Optional[List[Dict]]:
         """Execute a database query with automatic backend selection"""
         try:
+            # Convert params to tuple if needed, handle None case
+            if params is not None and not isinstance(params, (tuple, list)):
+                params = (params,)
+            elif params is None:
+                params = ()
+            
             if self.use_postgresql and self._postgres_conn:
                 return self._execute_postgresql_query(query, params, fetch)
             else:
@@ -304,10 +310,13 @@ class DatabaseManager:
             logger.error(f"❌ Query execution failed: {e}")
             raise
     
-    def _execute_postgresql_query(self, query: str, params: tuple = None, fetch: bool = True) -> Optional[List[Dict]]:
+    def _execute_postgresql_query(self, query: str, params=None, fetch: bool = True) -> Optional[List[Dict]]:
         """Execute PostgreSQL query"""
         with self._postgres_conn.cursor() as cursor:
-            cursor.execute(query, params)
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
             
             if fetch and cursor.description:
                 result = cursor.fetchall()
@@ -316,10 +325,13 @@ class DatabaseManager:
                 self._postgres_conn.commit()
                 return None
     
-    def _execute_sqlite_query(self, query: str, params: tuple = None, fetch: bool = True) -> Optional[List[Dict]]:
+    def _execute_sqlite_query(self, query: str, params=None, fetch: bool = True) -> Optional[List[Dict]]:
         """Execute SQLite query"""
         cursor = self._sqlite_conn.cursor()
-        cursor.execute(query, params)
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
         
         if fetch:
             result = cursor.fetchall()
@@ -332,8 +344,22 @@ class DatabaseManager:
         """Get recent performance summary (unified interface)"""
         try:
             if self.use_postgresql:
-                # Use PostgreSQL view
-                query = "SELECT * FROM recent_performance"
+                # Use PostgreSQL tables directly
+                query = """
+                SELECT 
+                    total_trades,
+                    winning_trades,
+                    losing_trades,
+                    win_rate_percentage,
+                    total_profit_loss,
+                    average_roi,
+                    best_trade_roi,
+                    worst_trade_roi
+                FROM performance_metrics 
+                WHERE period_type = 'all_time'
+                ORDER BY created_at DESC 
+                LIMIT 1
+                """
             else:
                 # SQLite equivalent
                 query = """
@@ -346,17 +372,42 @@ class DatabaseManager:
                          NULLIF(COUNT(CASE WHEN is_winner IS NOT NULL THEN 1 END), 0)), 1
                     ) as win_rate_percentage,
                     COALESCE(SUM(net_premium), 0) as total_profit_loss,
-                    COUNT(CASE WHEN status = 'OPEN' THEN 1 END) as open_trades
+                    ROUND(AVG(CASE WHEN is_winner IS NOT NULL THEN roi_percentage END), 1) as average_roi,
+                    MAX(roi_percentage) as best_trade_roi,
+                    MIN(roi_percentage) as worst_trade_roi
                 FROM trades 
-                WHERE entry_date >= date('now', '-30 days')
+                WHERE status != 'OPEN'
                 """
             
             result = self.execute_query(query)
-            return result[0] if result else {}
+            if result and len(result) > 0:
+                return result[0]
+            else:
+                # Return default empty performance
+                return {
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate_percentage': 0.0,
+                    'total_profit_loss': 0.0,
+                    'average_roi': 0.0,
+                    'best_trade_roi': 0.0,
+                    'worst_trade_roi': 0.0
+                }
             
         except Exception as e:
             logger.error(f"❌ Error getting performance: {e}")
-            return {}
+            # Return default empty performance on error
+            return {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'losing_trades': 0,
+                'win_rate_percentage': 0.0,
+                'total_profit_loss': 0.0,
+                'average_roi': 0.0,
+                'best_trade_roi': 0.0,
+                'worst_trade_roi': 0.0
+            }
     
     def get_open_trades(self) -> List[Dict]:
         """Get open trades with ITM/OTM status (unified interface)"""
@@ -469,15 +520,101 @@ def get_recent_performance():
 def get_open_trades():
     return db_manager.get_open_trades()
 
-def get_recent_grok_analyses(limit=10):
-    return db_manager.get_recent_grok_analyses(limit)
+def get_recent_grok_analyses(limit: int = 10):
+    """Get recent Grok analyses"""
+    try:
+        if db_manager.use_postgresql:
+            query = """
+            SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
+                   prompt_text, response_text, confidence_score, recommended_strategy
+            FROM grok_analyses 
+            ORDER BY analysis_date DESC 
+            LIMIT %s
+            """
+        else:
+            query = """
+            SELECT data, timestamp, session_id, ticker, dte
+            FROM stored_data 
+            WHERE data_type = 'grok_response' 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+            """
+        
+        result = db_manager.execute_query(query, (limit,))
+        return result or []
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting recent analyses: {e}")
+        return []
 
-def store_grok_analysis(analysis_data):
-    return db_manager.store_grok_analysis(analysis_data)
+def get_featured_analysis():
+    """Get the most recent or featured analysis"""
+    try:
+        if db_manager.use_postgresql:
+            query = """
+            SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
+                   prompt_text, response_text, confidence_score, recommended_strategy
+            FROM grok_analyses 
+            ORDER BY analysis_date DESC 
+            LIMIT 1
+            """
+        else:
+            query = """
+            SELECT data, timestamp, session_id, ticker, dte
+            FROM stored_data 
+            WHERE data_type = 'grok_response' 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+            """
+        
+        result = db_manager.execute_query(query)
+        if result:
+            return result[0]
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting featured analysis: {e}")
+        return None
+
+def get_latest_market_snapshot():
+    """Get the latest market snapshot"""
+    try:
+        if db_manager.use_postgresql:
+            query = """
+            SELECT ticker, snapshot_date, current_price, daily_change, 
+                   daily_change_percent, volume, implied_volatility, vix_level
+            FROM market_snapshots 
+            ORDER BY snapshot_date DESC 
+            LIMIT 1
+            """
+        else:
+            query = """
+            SELECT spy_price as current_price, spy_change as daily_change, 
+                   spy_change_percent as daily_change_percent, vix_level,
+                   snapshot_time as snapshot_date, 'SPY' as ticker
+            FROM market_snapshots 
+            ORDER BY snapshot_time DESC 
+            LIMIT 1
+            """
+        
+        result = db_manager.execute_query(query)
+        if result:
+            return result[0]
+        return None
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting market snapshot: {e}")
+        return None
 
 def test_database_connection():
+    """Test database connection"""
     return db_manager.test_connection()
+
+def store_grok_analysis(analysis_data: Dict) -> bool:
+    """Store a Grok analysis"""
+    return db_manager.store_grok_analysis(analysis_data)
 
 # Export the manager for direct use
 __all__ = ['db_manager', 'get_recent_performance', 'get_open_trades', 
-           'get_recent_grok_analyses', 'store_grok_analysis', 'test_database_connection']
+           'get_recent_grok_analyses', 'get_featured_analysis', 'get_latest_market_snapshot',
+           'store_grok_analysis', 'test_database_connection']
