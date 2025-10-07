@@ -413,8 +413,22 @@ class DatabaseManager:
         """Get open trades with ITM/OTM status (unified interface)"""
         try:
             if self.use_postgresql:
-                # Use PostgreSQL view
-                query = "SELECT * FROM open_trades_status ORDER BY entry_date DESC"
+                # PostgreSQL query using actual trades table
+                query = """
+                SELECT 
+                    *,
+                    CASE 
+                        WHEN strategy_type LIKE '%Put%' THEN 
+                            CASE WHEN current_underlying_price < short_strike THEN 'ITM' ELSE 'OTM' END
+                        WHEN strategy_type LIKE '%Call%' THEN 
+                            CASE WHEN current_underlying_price > short_strike THEN 'ITM' ELSE 'OTM' END
+                        ELSE 'UNKNOWN'
+                    END as itm_otm_status,
+                    EXTRACT(days FROM (expiration_date - CURRENT_DATE)) as days_to_expiration
+                FROM trades 
+                WHERE status = 'OPEN'
+                ORDER BY entry_date DESC
+                """
             else:
                 # SQLite equivalent
                 query = """
