@@ -9,12 +9,25 @@ import uuid
 import db_storage  # Import our database storage module
 from collections import defaultdict
 
+# Import public routes
+try:
+    from public_routes import public_routes
+    PUBLIC_ROUTES_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Public routes not available: {e}")
+    PUBLIC_ROUTES_AVAILABLE = False
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key_change_in_production'
+
+# Register public routes blueprint
+if PUBLIC_ROUTES_AVAILABLE:
+    app.register_blueprint(public_routes)
+    print("✅ Public routes registered")
 
 # Set Flask configuration based on environment
 app.config['DEBUG'] = config.DEBUG
@@ -60,6 +73,34 @@ def store_trade_data(trade_type, data):
 print(f"🚀 Flask App - Environment: {'PRODUCTION' if config.IS_PRODUCTION else 'DEVELOPMENT'}")
 print(f"🚀 Flask App - Debug Mode: {config.DEBUG}")
 print(f"🚀 Flask App - Port: {config.PORT}")
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Railway deployment"""
+    try:
+        # Test database connection
+        from unified_database import DatabaseManager
+        db_manager = DatabaseManager()
+        
+        # Simple query to test database connectivity
+        if hasattr(db_manager, 'test_connection'):
+            db_status = db_manager.test_connection()
+        else:
+            db_status = True  # Assume OK if no test method
+        
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': datetime.now().isoformat(),
+            'environment': config.ENVIRONMENT_NAME,
+            'database': 'connected' if db_status else 'disconnected'
+        }), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'timestamp': datetime.now().isoformat(),
+            'error': str(e)
+        }), 503
 
 @app.route('/')
 def home():

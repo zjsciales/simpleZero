@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏆 SimpleZero Trading Scoreboard - Live Performance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 0;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: -30px 20px 40px;
+            position: relative;
+            z-index: 2;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid #e9ecef;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .stat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .stat-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-trend {
+            font-size: 1.2rem;
+        }
+
+        .stat-value {
+            font-size: 2.2rem;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .stat-change {
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+
+        .green { color: #27ae60; }
+        .red { color: #e74c3c; }
+        .blue { color: #3498db; }
+
+        /* Live Trades Section */
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin: 40px 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f8f9fa;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .last-updated {
+            font-size: 0.9rem;
+            color: #6c757d;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        /* Trades Table */
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .trades-table th,
+        .trades-table td {
+            padding: 15px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .trades-table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .trades-table td {
+            font-size: 0.95rem;
+        }
+
+        .trades-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        /* Status Badges */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-otm {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-itm {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .confidence-bar {
+            width: 60px;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+
+        .confidence-high { background: #27ae60; }
+        .confidence-medium { background: #f39c12; }
+        .confidence-low { background: #e74c3c; }
+
+        /* Grok Analysis Section */
+        .grok-section {
+            background: #1a1a1a;
+            color: white;
+            border-radius: 12px;
+            padding: 40px;
+            margin: 40px 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .grok-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .grok-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .grok-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .grok-content {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+
+        .grok-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .grok-text {
+            font-size: 1rem;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+
+        .view-library-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .view-library-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* Loading States */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #e9ecef;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .header p {
+                font-size: 1rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+                margin: -20px 10px 30px;
+            }
+
+            .section {
+                margin: 30px 10px;
+                padding: 20px;
+            }
+
+            .trades-table {
+                font-size: 0.85rem;
+            }
+
+            .trades-table th,
+            .trades-table td {
+                padding: 10px 8px;
+            }
+
+            .grok-section {
+                margin: 30px 10px;
+                padding: 25px;
+            }
+
+            .grok-title {
+                font-size: 1.5rem;
+            }
+        }
+
+        /* Footer */
+        .footer {
+            background: #343a40;
+            color: white;
+            text-align: center;
+            padding: 30px 20px;
+            margin-top: 60px;
+        }
+
+        .footer p {
+            margin-bottom: 10px;
+        }
+
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="container">
+            <h1>🏆 SimpleZero Trading Scoreboard</h1>
+            <p>Live AI-Powered Options Trading Performance</p>
+        </div>
+    </div>
+
+    <!-- Performance Stats -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-header">
+                <span class="stat-title">Total Trades</span>
+                <span class="stat-trend green">📈</span>
+            </div>
+            <div class="stat-value" id="total-trades">Loading...</div>
+            <div class="stat-change">Last 30 days</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <span class="stat-title">Winning Trades</span>
+                <span class="stat-trend green">✅</span>
+            </div>
+            <div class="stat-value green" id="winning-trades">Loading...</div>
+            <div class="stat-change">Success rate</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <span class="stat-title">Losing Trades</span>
+                <span class="stat-trend red">❌</span>
+            </div>
+            <div class="stat-value red" id="losing-trades">Loading...</div>
+            <div class="stat-change">Learning opportunities</div>
+        </div>
+
+        <div class="stat-card">
+            <div class="stat-header">
+                <span class="stat-title">Win Rate</span>
+                <span class="stat-trend blue">🎯</span>
+            </div>
+            <div class="stat-value blue" id="win-rate">Loading...</div>
+            <div class="stat-change">Algorithm accuracy</div>
+        </div>
+    </div>
+
+    <!-- Live Trades Section -->
+    <div class="container">
+        <div class="section">
+            <div class="section-header">
+                <h2 class="section-title">🔴 Live Trades</h2>
+                <div class="last-updated">
+                    <span>🕐</span>
+                    <span id="trades-last-updated">Loading...</span>
+                </div>
+            </div>
+            
+            <div id="live-trades-content">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading live trades...
+                </div>
+            </div>
+        </div>
+
+        <!-- Latest Grok Analysis -->
+        <div class="grok-section">
+            <div class="grok-header">
+                <h2 class="grok-title">🤖 Latest AI Market Analysis</h2>
+                <p class="grok-subtitle">Powered by Grok AI with live TastyTrade data</p>
+            </div>
+            
+            <div id="grok-analysis-content">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading latest analysis...
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <a href="/library" class="view-library-btn">
+                    📚 View Analysis Library
+                    <span>→</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div class="container">
+            <p>&copy; 2025 SimpleZero Trading. Powered by TastyTrade API & Grok AI.</p>
+            <p>
+                <a href="/dashboard">Login to Dashboard</a> | 
+                <a href="/library">Analysis Library</a> | 
+                <a href="https://github.com/zjsciales/simpleZero" target="_blank">GitHub</a>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Global data storage
+        let cachedData = {
+            performance: null,
+            trades: null,
+            analysis: null,
+            lastUpdate: null
+        };
+
+        // Load all data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadScoreboardData();
+            
+            // Refresh data every 5 minutes
+            setInterval(loadScoreboardData, 5 * 60 * 1000);
+        });
+
+        async function loadScoreboardData() {
+            try {
+                console.log('🔄 Loading scoreboard data...');
+                
+                // Load performance stats
+                await loadPerformanceStats();
+                
+                // Load live trades
+                await loadLiveTrades();
+                
+                // Load latest Grok analysis
+                await loadLatestAnalysis();
+                
+                // Update last refresh time
+                cachedData.lastUpdate = new Date();
+                console.log('✅ Scoreboard data loaded successfully');
+                
+            } catch (error) {
+                console.error('❌ Error loading scoreboard data:', error);
+            }
+        }
+
+        async function loadPerformanceStats() {
+            try {
+                const response = await fetch('/api/public/performance');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const perf = data.performance;
+                    
+                    document.getElementById('total-trades').textContent = perf.total_trades || '0';
+                    document.getElementById('winning-trades').textContent = perf.winning_trades || '0';
+                    document.getElementById('losing-trades').textContent = perf.losing_trades || '0';
+                    document.getElementById('win-rate').textContent = (perf.win_rate_percentage || 0) + '%';
+                    
+                    cachedData.performance = perf;
+                } else {
+                    throw new Error(data.error || 'Failed to load performance');
+                }
+                
+            } catch (error) {
+                console.error('Error loading performance stats:', error);
+                // Show fallback data
+                document.getElementById('total-trades').textContent = 'Error';
+                document.getElementById('winning-trades').textContent = 'Error';
+                document.getElementById('losing-trades').textContent = 'Error';
+                document.getElementById('win-rate').textContent = 'Error';
+            }
+        }
+
+        async function loadLiveTrades() {
+            try {
+                const response = await fetch('/api/public/live-trades');
+                const data = await response.json();
+                
+                if (data.success && data.trades) {
+                    renderLiveTrades(data.trades);
+                    document.getElementById('trades-last-updated').textContent = 
+                        `Updated ${formatTime(new Date())}`;
+                    cachedData.trades = data.trades;
+                } else {
+                    throw new Error(data.error || 'No live trades available');
+                }
+                
+            } catch (error) {
+                console.error('Error loading live trades:', error);
+                document.getElementById('live-trades-content').innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #6c757d;">
+                        <h3>📊 No Live Trades</h3>
+                        <p>No active trades at the moment. Check back later!</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLiveTrades(trades) {
+            if (!trades || trades.length === 0) {
+                document.getElementById('live-trades-content').innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #6c757d;">
+                        <h3>📊 No Live Trades</h3>
+                        <p>No active trades at the moment. Check back later!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const tableHTML = `
+                <table class="trades-table">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Underlying</th>
+                            <th>Strikes</th>
+                            <th>Expiration</th>
+                            <th>Status</th>
+                            <th>Expected Credit</th>
+                            <th>Confidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${trades.map(trade => renderTradeRow(trade)).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            document.getElementById('live-trades-content').innerHTML = tableHTML;
+        }
+
+        function renderTradeRow(trade) {
+            const itm_status = trade.current_itm_status || trade.itm_otm_status || 'Unknown';
+            const statusClass = itm_status === 'OTM' ? 'status-otm' : 'status-itm';
+            const confidence = trade.grok_confidence || 0;
+            const confidenceClass = confidence >= 80 ? 'confidence-high' : 
+                                   confidence >= 60 ? 'confidence-medium' : 'confidence-low';
+            
+            const expectedCredit = trade.entry_premium_received || 
+                                  trade.entry_premium_paid || 
+                                  trade.expected_credit || 0;
+                                  
+            const daysToExp = trade.days_to_expiration || 
+                             calculateDaysToExpiration(trade.expiration_date);
+
+            return `
+                <tr>
+                    <td><strong>${trade.strategy_type}</strong></td>
+                    <td><strong>${trade.ticker}</strong></td>
+                    <td>$${trade.short_strike}/$${trade.long_strike}</td>
+                    <td>
+                        ${formatDate(trade.expiration_date)}
+                        <br><small>${daysToExp} days</small>
+                    </td>
+                    <td>
+                        <span class="status-badge ${statusClass}">
+                            ${itm_status === 'OTM' ? '✅ OTM' : '⚠️ ITM'}
+                        </span>
+                    </td>
+                    <td><strong>$${expectedCredit.toFixed(2)}</strong></td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-weight: 600;">${confidence}%</span>
+                            <div class="confidence-bar">
+                                <div class="confidence-fill ${confidenceClass}" 
+                                     style="width: ${confidence}%"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        async function loadLatestAnalysis() {
+            try {
+                const response = await fetch('/api/public/latest-analysis');
+                const data = await response.json();
+                
+                if (data.success && data.analysis) {
+                    renderLatestAnalysis(data.analysis);
+                    cachedData.analysis = data.analysis;
+                } else {
+                    throw new Error(data.error || 'No analysis available');
+                }
+                
+            } catch (error) {
+                console.error('Error loading latest analysis:', error);
+                document.getElementById('grok-analysis-content').innerHTML = `
+                    <div class="grok-content">
+                        <div style="text-align: center; padding: 20px;">
+                            <h3>🤖 Analysis Coming Soon</h3>
+                            <p>Latest AI analysis will appear here. Check back in a few minutes!</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLatestAnalysis(analysis) {
+            const analysisHTML = `
+                <div class="grok-content">
+                    <div class="grok-meta">
+                        <div>
+                            <strong>${analysis.ticker || 'SPY'} • ${analysis.dte || 0}DTE</strong>
+                            ${analysis.recommended_strategy ? ` • ${analysis.recommended_strategy}` : ''}
+                        </div>
+                        <div>
+                            ${formatDateTime(analysis.analysis_date)}
+                            ${analysis.confidence_score ? ` • ${analysis.confidence_score}% Confidence` : ''}
+                        </div>
+                    </div>
+                    <div class="grok-text">${truncateText(analysis.response_text, 500)}</div>
+                    ${analysis.response_text.length > 500 ? 
+                        '<p style="margin-top: 15px; opacity: 0.8;"><em>View full analysis in library →</em></p>' : 
+                        ''
+                    }
+                </div>
+            `;
+            
+            document.getElementById('grok-analysis-content').innerHTML = analysisHTML;
+        }
+
+        // Utility functions
+        function formatTime(date) {
+            return date.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+            });
+        }
+
+        function formatDate(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        }
+
+        function formatDateTime(dateStr) {
+            const date = new Date(dateStr);
+            return date.toLocaleString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function calculateDaysToExpiration(expirationDate) {
+            const today = new Date();
+            const expDate = new Date(expirationDate);
+            const diffTime = expDate - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            return Math.max(0, diffDays);
+        }
+
+        function truncateText(text, maxLength) {
+            if (text.length <= maxLength) return text;
+            return text.substr(0, maxLength) + '...';
+        }
+    </script>
+</body>
+</html>

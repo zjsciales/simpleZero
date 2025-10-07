@@ -932,7 +932,7 @@
                     
                     <div class="control-group prompt-preview">
                         <label class="control-label">Generated Prompt Preview</label>
-                        <div id="prompt-display" class="prompt-display">Loading prompt preview...</div>
+                        <div id="prompt-display" class="prompt-display">Select preferred DTE to generate prompt</div>
                     </div>
                 </div>
                 
@@ -1209,7 +1209,7 @@
             // Debounce the API call
             promptUpdateTimeout = setTimeout(async () => {
                 if (!ticker || !dte) {
-                    promptDisplay.textContent = 'Enter ticker and DTE to see generated prompt...';
+                    promptDisplay.textContent = 'Select preferred DTE to generate prompt';
                     return;
                 }
                 
@@ -1563,12 +1563,8 @@
                         dteSelect.appendChild(option);
                     });
                     
-                    // Select the first reasonable DTE (e.g., 0-7 days out)
-                    const defaultDTE = data.available_dtes.find(dte => dte.dte >= 0 && dte.dte <= 7);
-                    if (defaultDTE) {
-                        dteSelect.value = defaultDTE.dte;
-                        updatePrompt(); // Update prompt with new selection
-                    }
+                    // Don't auto-select any DTE - let user choose
+                    // This prevents automatic prompt generation on page load
                     
                     console.log(`✅ Loaded ${data.available_dtes.length} DTEs for ${ticker}`);
                 } else {
@@ -1671,7 +1667,7 @@
                         console.log('Loading cached Grok response...');
                         loadCachedGrokResponse();
                         
-                        // Initialize prompt will be called after DTEs load via updatePrompt()
+                        // Don't initialize prompt automatically - wait for user to select DTE
                     } else {
                         console.log('Not authenticated, skipping data loads');
                         // Show placeholder values when not authenticated
@@ -1680,7 +1676,7 @@
                         // Set unauthenticated message for prompt
                         const promptDisplay = document.getElementById('prompt-display');
                         if (promptDisplay) {
-                            promptDisplay.textContent = 'Please log in to generate market analysis prompts...';
+                            promptDisplay.textContent = 'Please log in to generate market analysis prompts';
                         }
                     }
                 })
@@ -1691,7 +1687,7 @@
                     // Set error message for prompt
                     const promptDisplay = document.getElementById('prompt-display');
                     if (promptDisplay) {
-                        promptDisplay.textContent = 'Authentication check failed. Please refresh and try again...';
+                        promptDisplay.textContent = 'Authentication check failed. Please refresh and try again';
                     }
                 });
         });

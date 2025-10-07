@@ -10,3 +10,4 @@ pytz
 yfinance
 websocket-client
 schedule
+psycopg2-binary

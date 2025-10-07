@@ -5,6 +5,10 @@ builder = "nixpacks"
 startCommand = "python app.py"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 300
 
 [environment]
 ENVIRONMENT = "production"
+FLASK_ENV = "production"
+TZ = "America/New_York"
