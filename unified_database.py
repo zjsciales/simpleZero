@@ -344,7 +344,7 @@ class DatabaseManager:
         """Get recent performance summary (unified interface)"""
         try:
             if self.use_postgresql:
-                # Use PostgreSQL tables directly
+                # Use PostgreSQL tables directly - SPY only
                 query = """
                 SELECT 
                     total_trades,
@@ -361,7 +361,7 @@ class DatabaseManager:
                 LIMIT 1
                 """
             else:
-                # SQLite equivalent
+                # SQLite equivalent - SPY only
                 query = """
                 SELECT 
                     COUNT(*) as total_trades,
@@ -376,7 +376,7 @@ class DatabaseManager:
                     MAX(roi_percentage) as best_trade_roi,
                     MIN(roi_percentage) as worst_trade_roi
                 FROM trades 
-                WHERE status != 'OPEN'
+                WHERE status != 'OPEN' AND ticker = 'SPY'
                 """
             
             result = self.execute_query(query)
@@ -413,7 +413,7 @@ class DatabaseManager:
         """Get open trades with ITM/OTM status (unified interface)"""
         try:
             if self.use_postgresql:
-                # PostgreSQL query using actual trades table
+                # PostgreSQL query using actual trades table - SPY only
                 query = """
                 SELECT 
                     *,
@@ -426,11 +426,11 @@ class DatabaseManager:
                     END as itm_otm_status,
                     EXTRACT(days FROM (expiration_date - CURRENT_DATE)) as days_to_expiration
                 FROM trades 
-                WHERE status = 'OPEN'
+                WHERE status = 'OPEN' AND ticker = 'SPY'
                 ORDER BY entry_date DESC
                 """
             else:
-                # SQLite equivalent
+                # SQLite equivalent - SPY only
                 query = """
                 SELECT 
                     *,
@@ -443,7 +443,7 @@ class DatabaseManager:
                     END as itm_otm_status,
                     CAST((julianday(expiration_date) - julianday('now')) AS INTEGER) as days_to_expiration
                 FROM trades 
-                WHERE status = 'OPEN'
+                WHERE status = 'OPEN' AND ticker = 'SPY'
                 ORDER BY entry_date DESC
                 """
             
@@ -455,17 +455,29 @@ class DatabaseManager:
             return []
     
     def get_recent_grok_analyses(self, limit: int = 10) -> List[Dict]:
-        """Get recent Grok analyses (unified interface)"""
+        """Get recent Grok analyses (unified interface) - SPY only"""
         try:
-            query = """
-            SELECT 
-                analysis_id, ticker, dte, analysis_date, response_text,
-                underlying_price, recommended_strategy, confidence_score,
-                is_featured, public_title, executed_trade_id
-            FROM grok_analyses 
-            ORDER BY analysis_date DESC 
-            LIMIT ?
-            """
+            if self.use_postgresql:
+                query = """
+                SELECT 
+                    analysis_id, ticker, dte, analysis_date, response_text,
+                    underlying_price, recommended_strategy, confidence_score
+                FROM grok_analyses 
+                WHERE ticker = 'SPY'
+                ORDER BY analysis_date DESC 
+                LIMIT %s
+                """
+            else:
+                query = """
+                SELECT 
+                    analysis_id, ticker, dte, analysis_date, response_text,
+                    underlying_price, recommended_strategy, confidence_score,
+                    is_featured, public_title, executed_trade_id
+                FROM grok_analyses 
+                WHERE ticker = 'SPY'
+                ORDER BY analysis_date DESC 
+                LIMIT ?
+                """
             
             result = self.execute_query(query, (limit,))
             return result or []
@@ -535,13 +547,14 @@ def get_open_trades():
     return db_manager.get_open_trades()
 
 def get_recent_grok_analyses(limit: int = 10):
-    """Get recent Grok analyses"""
+    """Get recent Grok analyses - SPY only"""
     try:
         if db_manager.use_postgresql:
             query = """
             SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
                    prompt_text, response_text, confidence_score, recommended_strategy
             FROM grok_analyses 
+            WHERE ticker = 'SPY'
             ORDER BY analysis_date DESC 
             LIMIT %s
             """
@@ -549,12 +562,13 @@ def get_recent_grok_analyses(limit: int = 10):
             query = """
             SELECT data, timestamp, session_id, ticker, dte
             FROM stored_data 
-            WHERE data_type = 'grok_response' 
+            WHERE data_type = 'grok_response' AND ticker = 'SPY'
             ORDER BY timestamp DESC 
             LIMIT ?
             """
         
         result = db_manager.execute_query(query, (limit,))
+        return result or []
         return result or []
         
     except Exception as e:
@@ -562,13 +576,14 @@ def get_recent_grok_analyses(limit: int = 10):
         return []
 
 def get_featured_analysis():
-    """Get the most recent or featured analysis"""
+    """Get the most recent or featured analysis - SPY only"""
     try:
         if db_manager.use_postgresql:
             query = """
             SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
                    prompt_text, response_text, confidence_score, recommended_strategy
             FROM grok_analyses 
+            WHERE ticker = 'SPY'
             ORDER BY analysis_date DESC 
             LIMIT 1
             """
@@ -576,7 +591,7 @@ def get_featured_analysis():
             query = """
             SELECT data, timestamp, session_id, ticker, dte
             FROM stored_data 
-            WHERE data_type = 'grok_response' 
+            WHERE data_type = 'grok_response' AND ticker = 'SPY'
             ORDER BY timestamp DESC 
             LIMIT 1
             """
