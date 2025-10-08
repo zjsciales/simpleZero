@@ -141,7 +141,6 @@ def api_public_live_trades():
                     strategy_type = f"Short {position['option_type']}"
                 
                 # Calculate days to expiration
-                from datetime import datetime
                 exp_date = datetime.strptime(position['expiration_date'], '%Y-%m-%d')
                 days_to_exp = (exp_date - datetime.now()).days
                 

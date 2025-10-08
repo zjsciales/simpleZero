@@ -3384,15 +3384,17 @@ def get_account_positions(account_number=None):
         positions_url = f"{TT_BASE_URL}/accounts/{account_number}/positions"
         print(f"🔗 Calling TastyTrade Positions API: {positions_url}")
         
+        # Get authenticated headers
+        headers = get_authenticated_headers()
         response = requests.get(positions_url, headers=headers)
         
         if response.status_code == 401:
             print("🔒 Authentication failed for positions endpoint")
             # Try token refresh
-            refresh_success = refresh_oauth_token()
+            refresh_success = refresh_access_token()
             if refresh_success:
                 print("✅ Token refresh successful, retrying positions...")
-                
+                headers = get_authenticated_headers()
                 response = requests.get(positions_url, headers=headers)
             else:
                 print("❌ Token refresh failed")
@@ -3542,25 +3544,57 @@ def get_account_transactions(account_number=None, start_date=None, end_date=None
                 # Filter for option transactions only
                 option_transactions = []
                 for transaction in transactions:
-                    # Look for transactions with option instruments
-                    if transaction.get('transaction-type') in ['Trade', 'trade']:
-                        for transaction_item in transaction.get('transaction-sub-type', []):
-                            if transaction_item.get('instrument-type') == 'Equity Option':
+                    try:
+                        # Check if this is a trade transaction
+                        if not transaction.get('transaction-type') == 'Trade':
+                            continue
+                        
+                        # TastyTrade transactions have a 'legs' array for multi-leg trades
+                        # or direct instrument data for single-leg trades
+                        legs = transaction.get('legs', [])
+                        if not legs:
+                            # Single leg transaction - check if it's an option
+                            instrument = transaction.get('instrument', {})
+                            if instrument and instrument.get('instrument-type') == 'Equity Option':
                                 option_transactions.append({
                                     'transaction_id': transaction.get('id'),
                                     'executed_at': transaction.get('executed-at'),
                                     'transaction_type': transaction.get('transaction-type'),
-                                    'action': transaction_item.get('action'),  # BTO, STO, BTC, STC
-                                    'quantity': transaction_item.get('quantity'),
-                                    'price': transaction_item.get('price'),
-                                    'net_value': transaction_item.get('value'),
-                                    'symbol': transaction_item.get('symbol'),
-                                    'underlying_symbol': transaction_item.get('underlying-symbol'),
-                                    'strike_price': transaction_item.get('strike-price'),
-                                    'option_type': transaction_item.get('option-type'),
-                                    'expiration_date': transaction_item.get('expiration-date'),
-                                    'instrument_type': transaction_item.get('instrument-type')
+                                    'action': transaction.get('action'),  # BTO, STO, BTC, STC
+                                    'quantity': int(transaction.get('quantity', 0)),
+                                    'price': float(transaction.get('price', 0)),
+                                    'net_value': float(transaction.get('net-value', 0)),
+                                    'symbol': instrument.get('symbol', ''),
+                                    'underlying_symbol': instrument.get('underlying-symbol', ''),
+                                    'strike_price': float(instrument.get('strike-price', 0)),
+                                    'option_type': instrument.get('option-type', ''),
+                                    'expiration_date': instrument.get('expiration-date', ''),
+                                    'instrument_type': instrument.get('instrument-type', '')
                                 })
+                        else:
+                            # Multi-leg transaction - process each leg
+                            for leg in legs:
+                                instrument = leg.get('instrument', {})
+                                if instrument and instrument.get('instrument-type') == 'Equity Option':
+                                    option_transactions.append({
+                                        'transaction_id': transaction.get('id'),
+                                        'executed_at': transaction.get('executed-at'),
+                                        'transaction_type': transaction.get('transaction-type'),
+                                        'action': leg.get('action'),  # BTO, STO, BTC, STC
+                                        'quantity': int(leg.get('quantity', 0)),
+                                        'price': float(leg.get('price', 0)),
+                                        'net_value': float(leg.get('value', 0)),
+                                        'symbol': instrument.get('symbol', ''),
+                                        'underlying_symbol': instrument.get('underlying-symbol', ''),
+                                        'strike_price': float(instrument.get('strike-price', 0)),
+                                        'option_type': instrument.get('option-type', ''),
+                                        'expiration_date': instrument.get('expiration-date', ''),
+                                        'instrument_type': instrument.get('instrument-type', '')
+                                    })
+                                    
+                    except Exception as tx_error:
+                        print(f"⚠️ Error processing transaction {transaction.get('id', 'unknown')}: {tx_error}")
+                        continue
                 
                 print(f"✅ Found {len(option_transactions)} option transaction(s)")
                 return option_transactions
