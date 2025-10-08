@@ -3415,15 +3415,18 @@ def get_account_positions(account_number=None):
                     instrument = position.get('instrument', {})
                     instrument_type = instrument.get('instrument-type')
                     
-                    # Debug: Track all position types
-                    all_positions_debug.append({
-                        'type': instrument_type,
-                        'symbol': instrument.get('symbol', ''),
-                        'underlying': instrument.get('underlying-symbol', ''),
-                        'quantity': position.get('quantity', 0)
-                    })
-                    
-                    if instrument_type == 'Equity Option':
+                # Debug: Track all position types with full data structure
+                print(f"🔍 RAW POSITION DATA: {position}")
+                print(f"🔍 RAW INSTRUMENT DATA: {instrument}")
+                
+                all_positions_debug.append({
+                    'type': instrument_type,
+                    'symbol': instrument.get('symbol', ''),
+                    'underlying': instrument.get('underlying-symbol', ''),
+                    'quantity': position.get('quantity', 0),
+                    'raw_position': position,
+                    'raw_instrument': instrument
+                })                    if instrument_type == 'Equity Option':
                         symbol = instrument.get('symbol', '')
                         underlying_symbol = instrument.get('underlying-symbol', '')
                         
