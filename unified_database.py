@@ -489,25 +489,60 @@ class DatabaseManager:
     def store_grok_analysis(self, analysis_data: Dict) -> bool:
         """Store Grok analysis (unified interface)"""
         try:
-            query = """
-            INSERT OR REPLACE INTO grok_analyses (
-                analysis_id, ticker, dte, analysis_date, prompt_text, response_text,
-                include_sentiment, underlying_price, recommended_strategy, confidence_score
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            
-            params = (
-                analysis_data.get('analysis_id'),
-                analysis_data.get('ticker', 'SPY'),
-                analysis_data.get('dte', 0),
-                analysis_data.get('analysis_date', datetime.now()),
-                analysis_data.get('prompt_text', ''),
-                analysis_data.get('response_text', ''),
-                1 if analysis_data.get('include_sentiment', False) else 0,
-                analysis_data.get('underlying_price', 0),
-                analysis_data.get('recommended_strategy'),
-                analysis_data.get('confidence_score')
-            )
+            if self.use_postgresql:
+                query = """
+                INSERT INTO grok_analyses (
+                    analysis_id, ticker, dte, analysis_date, prompt_text, response_text,
+                    include_sentiment, underlying_price, recommended_strategy, confidence_score
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                ) ON CONFLICT (analysis_id) DO UPDATE SET
+                    response_text = EXCLUDED.response_text,
+                    confidence_score = EXCLUDED.confidence_score
+                """
+                params = (
+                    analysis_data.get('analysis_id'),
+                    analysis_data.get('ticker', 'SPY'),
+                    analysis_data.get('dte', 0),
+                    analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('prompt_text', ''),
+                    analysis_data.get('response_text', ''),
+                    analysis_data.get('include_sentiment', True),
+                    analysis_data.get('underlying_price', 0),
+                    analysis_data.get('recommended_strategy'),
+                    analysis_data.get('confidence_score')
+                )
+            else:
+                query = """
+                INSERT OR REPLACE INTO grok_analyses (
+                    analysis_id, ticker, dte, analysis_date, prompt_text, response_text,
+                    include_sentiment, underlying_price, recommended_strategy, confidence_score
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    analysis_data.get('analysis_id'),
+                    analysis_data.get('ticker', 'SPY'),
+                    analysis_data.get('dte', 0),
+                    analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('prompt_text', ''),
+                    analysis_data.get('response_text', ''),
+                    analysis_data.get('include_sentiment', True),
+                    analysis_data.get('underlying_price', 0),
+                    analysis_data.get('recommended_strategy'),
+                    analysis_data.get('confidence_score')
+                )
+                params = (
+                    analysis_data.get('analysis_id'),
+                    analysis_data.get('ticker', 'SPY'),
+                    analysis_data.get('dte', 0),
+                    analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('prompt_text', ''),
+                    analysis_data.get('response_text', ''),
+                    1 if analysis_data.get('include_sentiment', False) else 0,
+                    analysis_data.get('underlying_price', 0),
+                    analysis_data.get('recommended_strategy'),
+                    analysis_data.get('confidence_score')
+                )
             
             self.execute_query(query, params, fetch=False)
             logger.info(f"✅ Stored Grok analysis: {analysis_data.get('analysis_id')}")
@@ -560,10 +595,11 @@ def get_recent_grok_analyses(limit: int = 10):
             """
         else:
             query = """
-            SELECT data, timestamp, session_id, ticker, dte
-            FROM stored_data 
-            WHERE data_type = 'grok_response' AND ticker = 'SPY'
-            ORDER BY timestamp DESC 
+            SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
+                   prompt_text, response_text, confidence_score, recommended_strategy
+            FROM grok_analyses 
+            WHERE ticker = 'SPY'
+            ORDER BY analysis_date DESC 
             LIMIT ?
             """
         
@@ -589,10 +625,11 @@ def get_featured_analysis():
             """
         else:
             query = """
-            SELECT data, timestamp, session_id, ticker, dte
-            FROM stored_data 
-            WHERE data_type = 'grok_response' AND ticker = 'SPY'
-            ORDER BY timestamp DESC 
+            SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
+                   prompt_text, response_text, confidence_score, recommended_strategy
+            FROM grok_analyses 
+            WHERE ticker = 'SPY'
+            ORDER BY analysis_date DESC 
             LIMIT 1
             """
         
@@ -643,7 +680,132 @@ def store_grok_analysis(analysis_data: Dict) -> bool:
     """Store a Grok analysis"""
     return db_manager.store_grok_analysis(analysis_data)
 
+def save_trade_to_database(trade_data: Dict) -> bool:
+    """Save a trade record to the database"""
+    try:
+        if db_manager.use_postgresql:
+            query = """
+            INSERT INTO trades (
+                trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                short_strike, long_strike, quantity, entry_premium_received,
+                entry_premium_paid, entry_underlying_price, status, grok_confidence,
+                market_conditions, created_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            ) ON CONFLICT (trade_id) DO UPDATE SET
+                updated_at = CURRENT_TIMESTAMP,
+                current_underlying_price = EXCLUDED.entry_underlying_price
+            """
+        else:
+            query = """
+            INSERT OR REPLACE INTO trades (
+                trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                short_strike, long_strike, quantity, entry_premium_received,
+                entry_premium_paid, entry_underlying_price, status, grok_confidence,
+                market_conditions, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        
+        params = (
+            trade_data.get('trade_id'),
+            trade_data.get('ticker', 'SPY'),
+            trade_data.get('strategy_type'),
+            trade_data.get('dte'),
+            trade_data.get('entry_date'),
+            trade_data.get('expiration_date'),
+            trade_data.get('short_strike'),
+            trade_data.get('long_strike'),
+            trade_data.get('quantity', 1),
+            trade_data.get('entry_premium_received'),
+            trade_data.get('entry_premium_paid'),
+            trade_data.get('entry_underlying_price'),
+            trade_data.get('status', 'OPEN'),
+            trade_data.get('grok_confidence'),
+            trade_data.get('market_conditions'),
+            trade_data.get('created_at', datetime.now())
+        )
+        
+        db_manager.execute_query(query, params, fetch=False)
+        logger.info(f"✅ Saved trade to database: {trade_data.get('trade_id')}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to save trade: {e}")
+        return False
+
+def update_performance_metrics() -> bool:
+    """Recalculate and update performance metrics based on closed trades"""
+    try:
+        if db_manager.use_postgresql:
+            # Calculate metrics from actual trades
+            query = """
+            INSERT INTO performance_metrics (
+                period_type, period_start, period_end, total_trades, winning_trades,
+                losing_trades, total_profit_loss, win_rate_percentage, average_roi,
+                best_trade_roi, worst_trade_roi, updated_at
+            ) 
+            SELECT 
+                'all_time' as period_type,
+                MIN(entry_date::date) as period_start,
+                CURRENT_DATE as period_end,
+                COUNT(*) as total_trades,
+                COUNT(CASE WHEN is_winner = true THEN 1 END) as winning_trades,
+                COUNT(CASE WHEN is_winner = false THEN 1 END) as losing_trades,
+                COALESCE(SUM(net_premium), 0) as total_profit_loss,
+                ROUND(
+                    (COUNT(CASE WHEN is_winner = true THEN 1 END) * 100.0 / 
+                     NULLIF(COUNT(CASE WHEN is_winner IS NOT NULL THEN 1 END), 0)), 2
+                ) as win_rate_percentage,
+                ROUND(AVG(CASE WHEN is_winner IS NOT NULL THEN roi_percentage END), 2) as average_roi,
+                MAX(roi_percentage) as best_trade_roi,
+                MIN(roi_percentage) as worst_trade_roi,
+                CURRENT_TIMESTAMP as updated_at
+            FROM trades 
+            WHERE status = 'CLOSED' AND ticker = 'SPY' AND is_winner IS NOT NULL
+            ON CONFLICT (period_type, period_start, period_end) 
+            DO UPDATE SET
+                total_trades = EXCLUDED.total_trades,
+                winning_trades = EXCLUDED.winning_trades,
+                losing_trades = EXCLUDED.losing_trades,
+                total_profit_loss = EXCLUDED.total_profit_loss,
+                win_rate_percentage = EXCLUDED.win_rate_percentage,
+                average_roi = EXCLUDED.average_roi,
+                best_trade_roi = EXCLUDED.best_trade_roi,
+                worst_trade_roi = EXCLUDED.worst_trade_roi,
+                updated_at = CURRENT_TIMESTAMP
+            """
+        else:
+            # SQLite version - simplified
+            query = """
+            INSERT OR REPLACE INTO performance_metrics (
+                period_type, period_start, period_end, total_trades, winning_trades,
+                losing_trades, total_profit_loss, win_rate_percentage
+            ) 
+            SELECT 
+                'all_time',
+                '2024-01-01',
+                date('now'),
+                COUNT(*),
+                COUNT(CASE WHEN is_winner = 1 THEN 1 END),
+                COUNT(CASE WHEN is_winner = 0 THEN 1 END),
+                COALESCE(SUM(net_premium), 0),
+                ROUND(
+                    (COUNT(CASE WHEN is_winner = 1 THEN 1 END) * 100.0 / 
+                     NULLIF(COUNT(CASE WHEN is_winner IS NOT NULL THEN 1 END), 0)), 1
+                )
+            FROM trades 
+            WHERE status = 'CLOSED' AND ticker = 'SPY'
+            """
+        
+        db_manager.execute_query(query, fetch=False)
+        logger.info("✅ Updated performance metrics")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to update performance metrics: {e}")
+        return False
+
 # Export the manager for direct use
 __all__ = ['db_manager', 'get_recent_performance', 'get_open_trades', 
            'get_recent_grok_analyses', 'get_featured_analysis', 'get_latest_market_snapshot',
-           'store_grok_analysis', 'test_database_connection']
+           'store_grok_analysis', 'save_trade_to_database', 'update_performance_metrics', 'test_database_connection']

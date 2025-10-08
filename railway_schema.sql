@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS grok_analyses (
     underlying_price DECIMAL(10,2) NOT NULL,
     prompt_text TEXT NOT NULL,
     response_text TEXT NOT NULL,
+    include_sentiment BOOLEAN DEFAULT TRUE,
     confidence_score INTEGER NULL,
     recommended_strategy VARCHAR(100) NULL,
     market_outlook VARCHAR(50) NULL,

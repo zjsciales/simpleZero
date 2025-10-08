@@ -387,52 +387,55 @@ def api_sync_positions():
                 
                 logger.info(f"  💼 Trade ID: {trade_id}, Strategy: {strategy_type}")
                 
-                # Insert position as a trade record
-                insert_query = """
-                INSERT INTO trades (
-                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
-                    short_strike, long_strike, quantity, entry_premium_received, 
-                    entry_underlying_price, status, current_underlying_price, 
-                    current_itm_status, last_price_update, created_at, updated_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """ if db_manager.use_postgresql else """
-                INSERT INTO trades (
-                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
-                    short_strike, long_strike, quantity, entry_premium_received, 
-                    entry_underlying_price, status, current_underlying_price, 
-                    current_itm_status, last_price_update, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                
-                params = (
-                    trade_id,
-                    position['underlying_symbol'],
-                    strategy_type,
-                    position.get('days_to_expiration', 0),
-                    position.get('created_at', datetime.now().isoformat()),
-                    position['expiration_date'],
-                    position['strike_price'],
-                    position['strike_price'],  # For single options, short/long strike are same
-                    abs(position['quantity']),
-                    position['average_open_price'] * abs(position['quantity']) * 100,  # Convert to premium
-                    0,  # We don't have underlying price at entry from positions
-                    'OPEN',
-                    0,  # Current underlying price - would need separate API call
-                    'UNKNOWN',  # ITM status - would need current market data
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat()
-                )
-                
-                db_manager.execute_query(insert_query, params, fetch=False)
-                synced_count += 1
-                logger.info(f"  ✅ Synced position: {trade_id}")
-                
+                # 🔴 USE UNIFIED DATABASE FUNCTION INSTEAD OF RAW SQL
+                try:
+                    from unified_database import save_trade_to_database
+                    
+                    trade_record = {
+                        'trade_id': trade_id,
+                        'ticker': position['underlying_symbol'],
+                        'strategy_type': strategy_type,
+                        'dte': position.get('days_to_expiration', 0),
+                        'entry_date': position.get('created_at', datetime.now()),
+                        'expiration_date': position['expiration_date'],
+                        'short_strike': position['strike_price'],
+                        'long_strike': position['strike_price'],  # For single options, short/long strike are same
+                        'quantity': abs(position['quantity']),
+                        'entry_premium_received': position['average_open_price'] * abs(position['quantity']) * 100,  # Convert to premium
+                        'entry_underlying_price': 0,  # We don't have underlying price at entry from positions
+                        'status': 'OPEN',
+                        'current_underlying_price': 0,  # Current underlying price - would need separate API call
+                        'current_itm_status': 'UNKNOWN',  # ITM status - would need current market data
+                        'last_price_update': datetime.now(),
+                        'source': 'tastytrade_sync'
+                    }
+                    
+                    success = save_trade_to_database(trade_record)
+                    if success:
+                        synced_count += 1
+                        logger.info(f"  ✅ Synced position: {trade_id}")
+                    else:
+                        logger.error(f"  ❌ Failed to save position {trade_id} to database")
+                        
+                except Exception as save_error:
+                    logger.error(f"❌ Failed to sync position {position.get('symbol', 'unknown')}: {save_error}")
+                    continue
             except Exception as e:
-                logger.error(f"❌ Failed to sync position {position.get('symbol', 'unknown')}: {e}")
+                logger.error(f"❌ Failed to process position {position.get('symbol', 'unknown')}: {e}")
                 continue
         
         logger.info(f"🎉 Sync complete: {synced_count}/{len(positions)} positions synced")
+        
+        # 🔴 UPDATE PERFORMANCE METRICS AFTER SYNC
+        try:
+            from unified_database import update_performance_metrics
+            metrics_updated = update_performance_metrics()
+            if metrics_updated:
+                logger.info("✅ Performance metrics updated after position sync")
+            else:
+                logger.warning("⚠️ Failed to update performance metrics after sync")
+        except Exception as metrics_error:
+            logger.error(f"⚠️ Performance metrics update error: {metrics_error}")
         
         return jsonify({
             'success': True,
@@ -724,6 +727,64 @@ def api_options_by_date():
         print(f"💥 Exception in options chain by date retrieval: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/test-database')
+def test_database():
+    """Test database connectivity and show recent data"""
+    try:
+        from unified_database import get_recent_grok_analyses, get_recent_trades, DatabaseManager
+        
+        # Test basic connectivity
+        db_manager = DatabaseManager()
+        conn = db_manager.get_connection()
+        
+        if conn:
+            print("✅ Database connection successful")
+            
+            # Get recent data
+            recent_analyses = get_recent_grok_analyses(limit=5)
+            recent_trades = get_recent_trades(limit=5)
+            
+            # Test a simple query
+            cursor = conn.cursor()
+            if db_manager.db_type == 'postgresql':
+                cursor.execute("SELECT COUNT(*) FROM grok_analyses")
+            else:
+                cursor.execute("SELECT COUNT(*) FROM grok_analyses")
+            
+            analyses_count = cursor.fetchone()[0]
+            
+            if db_manager.db_type == 'postgresql':
+                cursor.execute("SELECT COUNT(*) FROM trades")
+            else:
+                cursor.execute("SELECT COUNT(*) FROM trades")
+                
+            trades_count = cursor.fetchone()[0]
+            
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'database_type': db_manager.db_type,
+                'database_url': db_manager.database_url if db_manager.db_type == 'postgresql' else 'SQLite local file',
+                'total_analyses': analyses_count,
+                'total_trades': trades_count,
+                'recent_analyses': recent_analyses[:3],  # Show first 3
+                'recent_trades': recent_trades[:3],     # Show first 3
+                'message': f'Database working! {analyses_count} analyses, {trades_count} trades stored'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to connect to database'
+            }), 500
+            
+    except Exception as e:
+        print(f"💥 Database test error: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/generate-prompt', methods=['POST'])
 def generate_prompt():
     """API endpoint to generate and preview the Grok prompt"""
@@ -764,6 +825,30 @@ def generate_prompt():
             prompt = format_market_analysis_prompt_v7_comprehensive(market_data)
             
             print(f"✅ Generated enhanced prompt with {len(prompt)} characters of comprehensive analysis")
+            
+            # 🔴 SAVE PROMPT TO DATABASE (for library/history)
+            try:
+                from unified_database import store_grok_analysis
+                analysis_data = {
+                    'analysis_id': f"prompt_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
+                    'ticker': ticker,
+                    'dte': dte,
+                    'analysis_date': datetime.now(),
+                    'prompt_text': prompt,
+                    'response_text': None,  # No response yet, just the prompt
+                    'underlying_price': 0,  # Would need to extract from market data
+                    'recommended_strategy': None,
+                    'confidence_score': None,
+                    'include_sentiment': data.get('include_sentiment', True)
+                }
+                
+                success = store_grok_analysis(analysis_data)
+                if success:
+                    print(f"✅ Saved generated prompt to database: {analysis_data['analysis_id']}")
+                else:
+                    print("⚠️ Failed to save generated prompt to database")
+            except Exception as db_error:
+                print(f"⚠️ Database save error for prompt: {db_error}")
             
         except Exception as analysis_error:
             print(f"⚠️  Enhanced analysis failed, using fallback: {analysis_error}")
@@ -839,6 +924,30 @@ def grok_analysis():
         if trading_analysis:
             print(f"✅ Integrated Grok analysis completed")
             
+            # 🔴 SAVE ANALYSIS TO DATABASE
+            try:
+                from unified_database import store_grok_analysis
+                analysis_data = {
+                    'analysis_id': f"grok_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
+                    'ticker': ticker,
+                    'dte': dte,
+                    'analysis_date': datetime.now(),
+                    'prompt_text': f"Comprehensive analysis for {ticker} {dte}DTE",
+                    'response_text': trading_analysis,
+                    'underlying_price': 0,  # Would need to extract from market data
+                    'recommended_strategy': None,  # Could parse from response
+                    'confidence_score': None,  # Could parse from response
+                    'include_sentiment': include_sentiment
+                }
+                
+                success = store_grok_analysis(analysis_data)
+                if success:
+                    print(f"✅ Saved Grok analysis to database: {analysis_data['analysis_id']}")
+                else:
+                    print("⚠️ Failed to save Grok analysis to database")
+            except Exception as db_error:
+                print(f"⚠️ Database save error: {db_error}")
+            
             # Process and store the Grok response
             from trader_integration import process_grok_response
             user_session_id = session.get('session_id') or session.get('user_session_id')
@@ -849,6 +958,48 @@ def grok_analysis():
                 dte=dte,
                 session_id=user_session_id
             )
+            
+            # 🔴 SAVE PARSED TRADE TO DATABASE IF AVAILABLE
+            if processing_result.get('success') and processing_result.get('parsed_trade'):
+                try:
+                    from unified_database import save_trade_to_database
+                    trade_data = processing_result['parsed_trade']
+                    
+                    # Create trade record for database
+                    trade_record = {
+                        'trade_id': f"grok_parsed_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
+                        'ticker': ticker,
+                        'strategy_type': trade_data.get('strategy', 'Parsed from Grok'),
+                        'dte': dte,
+                        'entry_date': datetime.now(),
+                        'expiration_date': trade_data.get('expiration_date'),
+                        'short_strike': trade_data.get('short_strike', 0),
+                        'long_strike': trade_data.get('long_strike', 0),
+                        'quantity': 1,
+                        'entry_premium_received': trade_data.get('credit_received', 0),
+                        'entry_underlying_price': trade_data.get('underlying_price', 0),
+                        'status': 'PARSED',  # Not executed, just parsed
+                        'grok_confidence': trade_data.get('confidence', 0),
+                        'market_conditions': trade_data.get('rationale', ''),
+                        'source': 'grok_parsed'
+                    }
+                    
+                    success = save_trade_to_database(trade_record)
+                    if success:
+                        print(f"✅ Saved parsed trade to database: {trade_record['trade_id']}")
+                        
+                        # 🔴 UPDATE PERFORMANCE METRICS AFTER TRADE SAVE
+                        try:
+                            from unified_database import update_performance_metrics
+                            metrics_updated = update_performance_metrics()
+                            if metrics_updated:
+                                print("✅ Performance metrics updated after trade save")
+                        except Exception as metrics_error:
+                            print(f"⚠️ Performance metrics update error: {metrics_error}")
+                    else:
+                        print("⚠️ Failed to save parsed trade to database")
+                except Exception as db_error:
+                    print(f"⚠️ Trade save error: {db_error}")
             
             return jsonify({
                 'success': True,
