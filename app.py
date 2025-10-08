@@ -3,7 +3,7 @@ from flask import Flask, render_template, request, redirect, session, jsonify
 from datetime import datetime
 import os
 import logging
-from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date, get_account_balances
+from tt import get_oauth_authorization_url, exchange_code_for_token, set_access_token, set_refresh_token, get_market_data, get_oauth_token, get_options_chain, get_trading_range, get_options_chain_by_date, get_account_balances, get_account_positions
 import config
 import uuid
 import db_storage  # Import our database storage module
@@ -331,6 +331,104 @@ def api_account_balance():
             
     except Exception as e:
         print(f"💥 Exception in account balance retrieval: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/sync-positions', methods=['POST'])
+def api_sync_positions():
+    """Sync live positions from TastyTrade to database"""
+    if not session.get('access_token'):
+        return jsonify({'success': False, 'error': 'Not authenticated'}), 401
+    
+    try:
+        set_access_token(session.get('access_token'))
+        
+        # Get live positions from TastyTrade
+        positions = get_account_positions()
+        
+        if positions is None:
+            return jsonify({
+                'success': False,
+                'error': 'Could not retrieve positions from TastyTrade'
+            }), 500
+        
+        # Import unified database for storing positions
+        from unified_database import db_manager
+        
+        # Clear existing OPEN trades for SPY to avoid duplicates
+        # (We'll replace them with fresh data from TastyTrade)
+        clear_query = "DELETE FROM trades WHERE status = 'OPEN' AND ticker = 'SPY'"
+        db_manager.execute_query(clear_query, fetch=False)
+        
+        synced_count = 0
+        
+        # Convert positions to trade records
+        for position in positions:
+            try:
+                # Generate a trade ID based on the position
+                trade_id = f"TT_{position['underlying_symbol']}_{position['expiration_date']}_{position['strike_price']:.0f}{position['option_type'][0]}"
+                
+                # Determine strategy type based on position quantity
+                if position['quantity'] > 0:
+                    strategy_type = f"Long {position['option_type']}"
+                else:
+                    strategy_type = f"Short {position['option_type']}"
+                
+                # Insert position as a trade record
+                insert_query = """
+                INSERT INTO trades (
+                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                    short_strike, long_strike, quantity, entry_premium_received, 
+                    entry_underlying_price, status, current_underlying_price, 
+                    current_itm_status, last_price_update, created_at, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """ if db_manager.use_postgresql else """
+                INSERT INTO trades (
+                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                    short_strike, long_strike, quantity, entry_premium_received, 
+                    entry_underlying_price, status, current_underlying_price, 
+                    current_itm_status, last_price_update, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                
+                params = (
+                    trade_id,
+                    position['underlying_symbol'],
+                    strategy_type,
+                    position.get('days_to_expiration', 0),
+                    position.get('created_at', datetime.now().isoformat()),
+                    position['expiration_date'],
+                    position['strike_price'],
+                    position['strike_price'],  # For single options, short/long strike are same
+                    abs(position['quantity']),
+                    position['average_open_price'] * abs(position['quantity']) * 100,  # Convert to premium
+                    0,  # We don't have underlying price at entry from positions
+                    'OPEN',
+                    0,  # Current underlying price - would need separate API call
+                    'UNKNOWN',  # ITM status - would need current market data
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat(),
+                    datetime.now().isoformat()
+                )
+                
+                db_manager.execute_query(insert_query, params, fetch=False)
+                synced_count += 1
+                
+            except Exception as e:
+                print(f"❌ Failed to sync position {position['symbol']}: {e}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'message': f'Synced {synced_count} positions from TastyTrade',
+            'positions_found': len(positions),
+            'positions_synced': synced_count
+        })
+        
+    except Exception as e:
+        print(f"💥 Exception in position sync: {e}")
         return jsonify({
             'success': False,
             'error': str(e)

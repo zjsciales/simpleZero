@@ -859,6 +859,7 @@
                 </div>
             </div>
             <button class="refresh-btn" onclick="loadAccountBalance()">🔄 Refresh</button>
+            <button class="refresh-btn" onclick="syncPositions()" style="margin-left: 10px; background: #28a745;">📊 Sync Live Trades</button>
         </div>
     </div>
 
@@ -1111,6 +1112,48 @@
                 console.error('❌ Error loading account balance:', error);
                 document.getElementById('buying-power').textContent = 'Error';
                 document.getElementById('portfolio-value').textContent = 'Error';
+            }
+        }
+
+        async function syncPositions() {
+            try {
+                console.log('🔄 Syncing live positions from TastyTrade...');
+                
+                // Show loading state
+                const button = event.target;
+                const originalText = button.innerHTML;
+                button.innerHTML = '⏳ Syncing...';
+                button.disabled = true;
+                
+                const response = await fetch('/api/sync-positions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    console.log('✅ Positions synced:', data);
+                    alert(`✅ Successfully synced ${data.positions_synced} live trades from TastyTrade!\n\nFound: ${data.positions_found} positions\nSynced: ${data.positions_synced} SPY positions`);
+                } else {
+                    console.error('❌ Failed to sync positions:', data.error);
+                    alert(`❌ Failed to sync positions: ${data.error}`);
+                }
+                
+                // Restore button
+                button.innerHTML = originalText;
+                button.disabled = false;
+                
+            } catch (error) {
+                console.error('❌ Error syncing positions:', error);
+                alert(`❌ Error syncing positions: ${error.message}`);
+                
+                // Restore button
+                const button = event.target;
+                button.innerHTML = '📊 Sync Live Trades';
+                button.disabled = false;
             }
         }
 

@@ -3357,5 +3357,103 @@ def get_account_balances(account_number=None):
         return None
 
 
+def get_account_positions(account_number=None):
+    """
+    Get current positions from TastyTrade account
+    
+    Returns:
+    List of position dictionaries or None if error
+    """
+    try:
+        if not account_number:
+            accounts = get_customer_accounts()
+            if accounts and len(accounts) > 0:
+                account_number = accounts[0]['account']['account-number']
+            else:
+                print("❌ No account number available for positions lookup")
+                return None
+
+        print(f"📊 Getting account positions for {account_number}...")
+        
+        # Check authentication
+        if not get_oauth_token():
+            print("❌ No authentication available for account positions")
+            return None
+        
+        # TastyTrade account positions endpoint
+        positions_url = f"{TT_BASE_URL}/accounts/{account_number}/positions"
+        print(f"🔗 Calling TastyTrade Positions API: {positions_url}")
+        
+        response = requests.get(positions_url, headers=headers)
+        
+        if response.status_code == 401:
+            print("🔒 Authentication failed for positions endpoint")
+            # Try token refresh
+            refresh_success = refresh_oauth_token()
+            if refresh_success:
+                print("✅ Token refresh successful, retrying positions...")
+                
+                response = requests.get(positions_url, headers=headers)
+            else:
+                print("❌ Token refresh failed")
+                return None
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"📊 Position data received for {account_number}")
+            
+            if 'data' in data and 'items' in data['data']:
+                positions = data['data']['items']
+                
+                # Filter for options positions only
+                options_positions = []
+                for position in positions:
+                    instrument = position.get('instrument', {})
+                    instrument_type = instrument.get('instrument-type')
+                    
+                    if instrument_type == 'Equity Option':
+                        symbol = instrument.get('symbol', '')
+                        underlying_symbol = instrument.get('underlying-symbol', '')
+                        
+                        # Only include SPY options for our public display
+                        if underlying_symbol == 'SPY':
+                            options_positions.append({
+                                'symbol': symbol,
+                                'underlying_symbol': underlying_symbol,
+                                'quantity': int(position.get('quantity', 0)),
+                                'average_open_price': float(position.get('average-open-price', 0)),
+                                'mark': float(position.get('mark', 0)),
+                                'mark_value': float(position.get('mark-value', 0)),
+                                'multiplier': int(position.get('multiplier', 1)),
+                                'realized_day_gain': float(position.get('realized-day-gain', 0)),
+                                'unrealized_day_gain': float(position.get('unrealized-day-gain', 0)),
+                                'created_at': position.get('created-at', ''),
+                                'updated_at': position.get('updated-at', ''),
+                                'instrument_type': instrument_type,
+                                'option_type': instrument.get('option-type', ''),
+                                'strike_price': float(instrument.get('strike-price', 0)),
+                                'expiration_date': instrument.get('expiration-date', ''),
+                                'days_to_expiration': instrument.get('days-to-expiration', 0)
+                            })
+                
+                print(f"✅ Found {len(options_positions)} SPY options positions")
+                for pos in options_positions:
+                    print(f"   📍 {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
+                
+                return options_positions
+            else:
+                print(f"❌ No positions found in response")
+                return []
+        
+        else:
+            print(f"❌ Failed to get account positions: {response.status_code}")
+            print(f"🔄 Response preview: {response.text[:200]}...")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error getting account positions: {str(e)}")
+        return None
+
+
 if __name__ == "__main__":
     main()
