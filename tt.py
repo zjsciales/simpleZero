@@ -3409,40 +3409,58 @@ def get_account_positions(account_number=None):
                 
                 # Filter for options positions only
                 options_positions = []
+                all_positions_debug = []  # For debugging
+                
                 for position in positions:
                     instrument = position.get('instrument', {})
                     instrument_type = instrument.get('instrument-type')
+                    
+                    # Debug: Track all position types
+                    all_positions_debug.append({
+                        'type': instrument_type,
+                        'symbol': instrument.get('symbol', ''),
+                        'underlying': instrument.get('underlying-symbol', ''),
+                        'quantity': position.get('quantity', 0)
+                    })
                     
                     if instrument_type == 'Equity Option':
                         symbol = instrument.get('symbol', '')
                         underlying_symbol = instrument.get('underlying-symbol', '')
                         
-                        # Only include SPY options for our public display
-                        if underlying_symbol == 'SPY':
-                            options_positions.append({
-                                'symbol': symbol,
-                                'underlying_symbol': underlying_symbol,
-                                'quantity': int(position.get('quantity', 0)),
-                                'average_open_price': float(position.get('average-open-price', 0)),
-                                'mark': float(position.get('mark', 0)),
-                                'mark_value': float(position.get('mark-value', 0)),
-                                'multiplier': int(position.get('multiplier', 1)),
-                                'realized_day_gain': float(position.get('realized-day-gain', 0)),
-                                'unrealized_day_gain': float(position.get('unrealized-day-gain', 0)),
-                                'created_at': position.get('created-at', ''),
-                                'updated_at': position.get('updated-at', ''),
-                                'instrument_type': instrument_type,
-                                'option_type': instrument.get('option-type', ''),
-                                'strike_price': float(instrument.get('strike-price', 0)),
-                                'expiration_date': instrument.get('expiration-date', ''),
-                                'days_to_expiration': instrument.get('days-to-expiration', 0)
-                            })
+                        # DEBUG: Show all options positions, not just SPY
+                        options_positions.append({
+                            'symbol': symbol,
+                            'underlying_symbol': underlying_symbol,
+                            'quantity': int(position.get('quantity', 0)),
+                            'average_open_price': float(position.get('average-open-price', 0)),
+                            'mark': float(position.get('mark', 0)),
+                            'mark_value': float(position.get('mark-value', 0)),
+                            'multiplier': int(position.get('multiplier', 1)),
+                            'realized_day_gain': float(position.get('realized-day-gain', 0)),
+                            'unrealized_day_gain': float(position.get('unrealized-day-gain', 0)),
+                            'created_at': position.get('created-at', ''),
+                            'updated_at': position.get('updated-at', ''),
+                            'instrument_type': instrument_type,
+                            'option_type': instrument.get('option-type', ''),
+                            'strike_price': float(instrument.get('strike-price', 0)),
+                            'expiration_date': instrument.get('expiration-date', ''),
+                            'days_to_expiration': instrument.get('days-to-expiration', 0)
+                        })
                 
-                print(f"✅ Found {len(options_positions)} SPY options positions")
+                # Debug logging
+                print(f"🔍 DEBUG: All positions in account:")
+                for pos in all_positions_debug:
+                    print(f"   📍 {pos['type']}: {pos['symbol']} ({pos['underlying']}) - Qty: {pos['quantity']}")
+                
+                print(f"✅ Found {len(options_positions)} total options positions")
                 for pos in options_positions:
                     print(f"   📍 {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
                 
-                return options_positions
+                # Filter to SPY for the final return (keep public display clean)
+                spy_positions = [pos for pos in options_positions if pos['underlying_symbol'] == 'SPY']
+                print(f"📊 SPY-only positions: {len(spy_positions)}")
+                
+                return spy_positions
             else:
                 print(f"❌ No positions found in response")
                 return []
