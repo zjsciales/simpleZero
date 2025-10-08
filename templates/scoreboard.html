@@ -486,15 +486,19 @@
                 console.log('🔄 Loading scoreboard data...');
                 
                 // Monitor for closed trades first (updates database)
+                console.log('🔄 Step 1: Monitoring closed trades...');
                 await monitorClosedTrades();
                 
                 // Load performance stats
+                console.log('🔄 Step 2: Loading performance stats...');
                 await loadPerformanceStats();
                 
                 // Load live trades
+                console.log('🔄 Step 3: Loading live trades...');
                 await loadLiveTrades();
                 
                 // Load latest Grok analysis
+                console.log('🔄 Step 4: Loading latest analysis...');
                 await loadLatestAnalysis();
                 
                 // Update last refresh time
@@ -503,6 +507,7 @@
                 
             } catch (error) {
                 console.error('❌ Error loading scoreboard data:', error);
+                console.error('❌ Stack trace:', error.stack);
             }
         }
 
@@ -558,15 +563,21 @@
 
         async function loadLiveTrades() {
             try {
+                console.log('🔄 Loading live trades...');
                 const response = await fetch('/api/public/live-trades');
+                console.log('📡 Live trades response status:', response.status);
+                
                 const data = await response.json();
+                console.log('📊 Live trades data:', data);
                 
                 if (data.success && data.trades) {
+                    console.log(`✅ Found ${data.trades.length} live trades`);
                     renderLiveTrades(data.trades);
                     document.getElementById('trades-last-updated').textContent = 
                         `Updated ${formatTime(new Date())}`;
                     cachedData.trades = data.trades;
                 } else {
+                    console.warn('⚠️ Live trades API returned:', data);
                     throw new Error(data.error || 'No live trades available');
                 }
                 
@@ -575,7 +586,8 @@
                 document.getElementById('live-trades-content').innerHTML = `
                     <div style="text-align: center; padding: 40px; color: #6c757d;">
                         <h3>📊 No Live Trades</h3>
-                        <p>No active trades at the moment. Check back later!</p>
+                        <p>Unable to retrieve live trades: ${error.message}</p>
+                        <p>Check back later!</p>
                     </div>
                 `;
             }
