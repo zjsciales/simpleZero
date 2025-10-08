@@ -3426,7 +3426,9 @@ def get_account_positions(account_number=None):
                     'quantity': position.get('quantity', 0),
                     'raw_position': position,
                     'raw_instrument': instrument
-                })                    if instrument_type == 'Equity Option':
+                })
+                
+                if instrument_type == 'Equity Option':
                         symbol = instrument.get('symbol', '')
                         underlying_symbol = instrument.get('underlying-symbol', '')
                         
@@ -3544,7 +3546,7 @@ def get_account_transactions(account_number=None, start_date=None, end_date=None
             print("🔒 Authentication failed for transactions endpoint")
             # Try token refresh
             try:
-                refresh_result = token_manager.refresh_tokens()
+                refresh_result = refresh_access_token()
                 if refresh_result:
                     print("✅ Token refresh successful, retrying transactions...")
                     headers = get_authenticated_headers()
