@@ -485,6 +485,9 @@
             try {
                 console.log('🔄 Loading scoreboard data...');
                 
+                // Monitor for closed trades first (updates database)
+                await monitorClosedTrades();
+                
                 // Load performance stats
                 await loadPerformanceStats();
                 
@@ -500,6 +503,28 @@
                 
             } catch (error) {
                 console.error('❌ Error loading scoreboard data:', error);
+            }
+        }
+
+        async function monitorClosedTrades() {
+            try {
+                console.log('🔍 Monitoring for closed trades...');
+                const response = await fetch('/api/monitor-closed-trades');
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (data.closed_trades_found > 0) {
+                        console.log(`✅ Found ${data.closed_trades_found} closed trades, stored ${data.closed_trades_processed} to database`);
+                    } else {
+                        console.log('ℹ️ No new closed trades found');
+                    }
+                } else {
+                    console.log('⚠️ Trade monitoring failed:', data.error);
+                }
+                
+            } catch (error) {
+                console.log('ℹ️ Trade monitoring skipped (not authenticated or error):', error.message);
+                // Don't throw error - this is optional functionality
             }
         }
 

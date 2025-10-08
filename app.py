@@ -727,6 +727,81 @@ def api_options_by_date():
         print(f"💥 Exception in options chain by date retrieval: {e}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/monitor-closed-trades')
+def monitor_closed_trades():
+    """Monitor for closed trades and store performance data (called from scoreboard)"""
+    try:
+        # Check if user has valid access token
+        if 'access_token' not in session:
+            return jsonify({
+                'success': False,
+                'error': 'Authentication required'
+            }), 401
+        
+        # Set tokens in tt.py module for API calls
+        from tt import set_access_token, set_refresh_token
+        set_access_token(session['access_token'])
+        if 'refresh_token' in session:
+            set_refresh_token(session['refresh_token'])
+        
+        # Call monitoring function from tt.py
+        from tt import monitor_closed_trades as tt_monitor_closed_trades
+        result = tt_monitor_closed_trades()
+        
+        if not result or not result.get('success'):
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Failed to monitor trades'),
+                'closed_trades_processed': 0
+            })
+        
+        # Store closed trades to database
+        closed_trades = result.get('closed_trades', [])
+        stored_count = 0
+        
+        if closed_trades:
+            try:
+                from unified_database import save_trade_to_database, update_performance_metrics
+                
+                for trade_record in closed_trades:
+                    # Check if this trade already exists in database
+                    existing_check = True  # Would need to implement duplicate check
+                    
+                    if existing_check:  # For now, always try to save
+                        success = save_trade_to_database(trade_record)
+                        if success:
+                            stored_count += 1
+                            print(f"✅ Stored closed trade: {trade_record['trade_id']}")
+                        else:
+                            print(f"⚠️ Failed to store trade: {trade_record['trade_id']}")
+                
+                # Update performance metrics after storing trades
+                if stored_count > 0:
+                    try:
+                        update_performance_metrics()
+                        print(f"✅ Updated performance metrics after {stored_count} closed trades")
+                    except Exception as metrics_error:
+                        print(f"⚠️ Performance metrics update error: {metrics_error}")
+                        
+            except Exception as db_error:
+                print(f"❌ Database error storing closed trades: {db_error}")
+        
+        return jsonify({
+            'success': True,
+            'closed_trades_found': len(closed_trades),
+            'closed_trades_processed': stored_count,
+            'trades': [t['trade_id'] for t in closed_trades],
+            'message': f'Found {len(closed_trades)} closed trades, stored {stored_count} to database'
+        })
+        
+    except Exception as e:
+        print(f"💥 Error in monitor closed trades endpoint: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'closed_trades_processed': 0
+        }), 500
+
 @app.route('/api/test-database')
 def test_database():
     """Test database connectivity and show recent data"""

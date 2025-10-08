@@ -3455,5 +3455,257 @@ def get_account_positions(account_number=None):
         return None
 
 
+def get_account_transactions(account_number=None, start_date=None, end_date=None):
+    """
+    Get account transaction history from TastyTrade API
+    
+    Parameters:
+    account_number: Account number (uses config default if None, fetches from API in production)
+    start_date: Start date in YYYY-MM-DD format (optional)
+    end_date: End date in YYYY-MM-DD format (optional)
+    
+    Returns:
+    List of transaction dictionaries or None if error
+    """
+    try:
+        if account_number is None:
+            account_number = config.TT_ACCOUNT_NUMBER
+            
+            # In production, fetch account number from API
+            if not account_number:
+                print(f"🔍 No account number in config, fetching from API...")
+                accounts = get_customer_accounts()
+                if accounts and len(accounts) > 0:
+                    # Use the first active account
+                    for account in accounts:
+                        account_info = account.get('account', {})
+                        if not account_info.get('is-closed', False):
+                            account_number = account_info.get('account-number')
+                            print(f"✅ Using account: {account_number}")
+                            break
+                    
+                    if not account_number and accounts:
+                        # Fallback to first account even if closed
+                        account_number = accounts[0].get('account', {}).get('account-number')
+                        print(f"⚠️ Using first available account: {account_number}")
+        
+        if not account_number:
+            print("❌ No account number available for transaction lookup")
+            return None
+        
+        print(f"🔍 Getting account transactions for {account_number}...")
+        
+        # Check for authentication
+        headers = get_authenticated_headers()
+        if not headers:
+            print("❌ No authentication available for transactions")
+            return None
+        
+        # Build TastyTrade transactions endpoint
+        transactions_url = f"{TT_BASE_URL}/accounts/{account_number}/transactions"
+        
+        # Add date filters if provided
+        params = {}
+        if start_date:
+            params['start-date'] = start_date
+        if end_date:
+            params['end-date'] = end_date
+            
+        print(f"🔗 Calling TastyTrade Transactions API: {transactions_url}")
+        if params:
+            print(f"📅 Date range: {params}")
+        
+        response = requests.get(transactions_url, headers=headers, params=params)
+        
+        if response.status_code == 401:
+            print("🔒 Authentication failed for transactions endpoint")
+            # Try token refresh
+            try:
+                refresh_result = token_manager.refresh_tokens()
+                if refresh_result:
+                    print("✅ Token refresh successful, retrying transactions...")
+                    headers = get_authenticated_headers()
+                    response = requests.get(transactions_url, headers=headers, params=params)
+            except Exception as refresh_error:
+                print(f"❌ Token refresh failed: {refresh_error}")
+                return None
+        
+        if response.status_code == 200:
+            print(f"📊 Transactions data received")
+            
+            # Extract transactions from TastyTrade response
+            data = response.json()
+            if 'data' in data and 'items' in data['data']:
+                transactions = data['data']['items']
+                print(f"✅ Found {len(transactions)} transaction(s)")
+                
+                # Filter for option transactions only
+                option_transactions = []
+                for transaction in transactions:
+                    # Look for transactions with option instruments
+                    if transaction.get('transaction-type') in ['Trade', 'trade']:
+                        for transaction_item in transaction.get('transaction-sub-type', []):
+                            if transaction_item.get('instrument-type') == 'Equity Option':
+                                option_transactions.append({
+                                    'transaction_id': transaction.get('id'),
+                                    'executed_at': transaction.get('executed-at'),
+                                    'transaction_type': transaction.get('transaction-type'),
+                                    'action': transaction_item.get('action'),  # BTO, STO, BTC, STC
+                                    'quantity': transaction_item.get('quantity'),
+                                    'price': transaction_item.get('price'),
+                                    'net_value': transaction_item.get('value'),
+                                    'symbol': transaction_item.get('symbol'),
+                                    'underlying_symbol': transaction_item.get('underlying-symbol'),
+                                    'strike_price': transaction_item.get('strike-price'),
+                                    'option_type': transaction_item.get('option-type'),
+                                    'expiration_date': transaction_item.get('expiration-date'),
+                                    'instrument_type': transaction_item.get('instrument-type')
+                                })
+                
+                print(f"✅ Found {len(option_transactions)} option transaction(s)")
+                return option_transactions
+            else:
+                print("⚠️ No transactions data in response")
+                return []
+        else:
+            print(f"❌ TastyTrade API error: {response.status_code}")
+            print(f"🔄 Response preview: {response.text[:200]}...")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error getting account transactions: {str(e)}")
+        return None
+
+
+def monitor_closed_trades():
+    """
+    Monitor for closed trades and return performance data
+    Called from scoreboard to check for recently closed positions
+    
+    Returns:
+    Dict with closed trades data or None if error
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        print("🔍 Monitoring for closed trades...")
+        
+        # Get transactions from last 7 days
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+        
+        transactions = get_account_transactions(
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d')
+        )
+        
+        if not transactions:
+            return {
+                'success': True,
+                'closed_trades': [],
+                'message': 'No recent transactions found'
+            }
+        
+        # Process transactions to find closed trades
+        trade_map = {}  # Track open/close pairs
+        
+        for transaction in transactions:
+            # Only process SPY options
+            if transaction.get('underlying_symbol') != 'SPY':
+                continue
+            
+            try:
+                # Create trade identifier
+                trade_key = f"{transaction['underlying_symbol']}_{transaction['expiration_date']}_{transaction['strike_price']:.0f}{transaction['option_type'][0]}"
+                
+                if trade_key not in trade_map:
+                    trade_map[trade_key] = {
+                        'opens': [],
+                        'closes': [],
+                        'symbol': transaction['symbol'],
+                        'underlying': transaction['underlying_symbol'],
+                        'strike': transaction['strike_price'],
+                        'option_type': transaction['option_type'],
+                        'expiration': transaction['expiration_date']
+                    }
+                
+                # Categorize as open or close
+                if transaction['action'] in ['BTO', 'STO']:  # Buy/Sell to Open
+                    trade_map[trade_key]['opens'].append(transaction)
+                elif transaction['action'] in ['BTC', 'STC']:  # Buy/Sell to Close
+                    trade_map[trade_key]['closes'].append(transaction)
+                    
+            except Exception as e:
+                print(f"⚠️ Error processing transaction: {e}")
+                continue
+        
+        # Find completed trades (have both opens and closes)
+        closed_trades = []
+        for trade_key, trade_data in trade_map.items():
+            if trade_data['opens'] and trade_data['closes']:
+                try:
+                    # Calculate trade performance
+                    total_open_cost = sum(t['net_value'] for t in trade_data['opens'])
+                    total_close_value = sum(t['net_value'] for t in trade_data['closes'])
+                    net_pnl = total_close_value + total_open_cost  # Close value is usually negative
+                    
+                    # Determine if winner
+                    is_winner = net_pnl > 0
+                    
+                    # Get trade timing
+                    open_date = min(t['executed_at'] for t in trade_data['opens'])
+                    close_date = max(t['executed_at'] for t in trade_data['closes'])
+                    
+                    # Calculate strategy type
+                    open_action = trade_data['opens'][0]['action']
+                    if open_action == 'STO':
+                        strategy_type = f"Short {trade_data['option_type']}"
+                    else:
+                        strategy_type = f"Long {trade_data['option_type']}"
+                    
+                    # Create trade record
+                    trade_record = {
+                        'trade_id': f"CLOSED_{trade_key}_{datetime.now().strftime('%Y%m%d')}",
+                        'ticker': trade_data['underlying'],
+                        'strategy_type': strategy_type,
+                        'entry_date': open_date,
+                        'exit_date': close_date,
+                        'expiration_date': trade_data['expiration'],
+                        'short_strike': trade_data['strike'],
+                        'long_strike': trade_data['strike'],
+                        'quantity': sum(abs(t['quantity']) for t in trade_data['opens']),
+                        'entry_premium_received': abs(total_open_cost) if open_action == 'STO' else 0,
+                        'entry_premium_paid': abs(total_open_cost) if open_action == 'BTO' else 0,
+                        'exit_premium_received': abs(total_close_value) if trade_data['closes'][0]['action'] == 'STC' else 0,
+                        'exit_premium_paid': abs(total_close_value) if trade_data['closes'][0]['action'] == 'BTC' else 0,
+                        'status': 'CLOSED',
+                        'is_winner': is_winner,
+                        'net_premium': net_pnl,
+                        'roi_percentage': (net_pnl / abs(total_open_cost) * 100) if total_open_cost != 0 else 0,
+                        'market_conditions': f"Closed trade from TastyTrade monitoring"
+                    }
+                    
+                    closed_trades.append(trade_record)
+                    print(f"✅ Found closed trade: {trade_record['trade_id']} | P&L: ${net_pnl:.2f}")
+                    
+                except Exception as e:
+                    print(f"❌ Error processing closed trade {trade_key}: {e}")
+                    continue
+        
+        return {
+            'success': True,
+            'closed_trades': closed_trades,
+            'trades_found': len(closed_trades),
+            'message': f'Found {len(closed_trades)} closed trades in last 7 days'
+        }
+        
+    except Exception as e:
+        print(f"❌ Error monitoring closed trades: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
 if __name__ == "__main__":
     main()

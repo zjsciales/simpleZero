@@ -104,111 +104,102 @@ def api_public_performance():
 
 @public_routes.route('/api/public/live-trades')
 def api_public_live_trades():
-    """Get current live trades for public display"""
+    """Get current live trades directly from TastyTrade API"""
     try:
-        if not DATABASE_AVAILABLE:
-            # Return mock data if database not available
-            mock_trades = [
-                {
-                    'trade_id': 'SPY_2025_10_17_001',
-                    'ticker': 'SPY',
-                    'strategy_type': 'Bull Put Spread',
-                    'short_strike': 565.00,
-                    'long_strike': 560.00,
-                    'expiration_date': '2025-10-17',
-                    'current_itm_status': 'OTM',
-                    'entry_premium_received': 1.20,
-                    'grok_confidence': 85,
-                    'days_to_expiration': 10
-                },
-                {
-                    'trade_id': 'QQQ_2025_10_24_001',
-                    'ticker': 'QQQ',
-                    'strategy_type': 'Bear Call Spread',
-                    'short_strike': 485.00,
-                    'long_strike': 480.00,
-                    'expiration_date': '2025-10-24',
-                    'current_itm_status': 'OTM',
-                    'entry_premium_received': 0.95,
-                    'grok_confidence': 78,
-                    'days_to_expiration': 17
-                },
-                {
-                    'trade_id': 'IWM_2025_10_31_001',
-                    'ticker': 'IWM',
-                    'strategy_type': 'Bull Put Spread',
-                    'short_strike': 200.00,
-                    'long_strike': 195.00,
-                    'expiration_date': '2025-10-31',
-                    'current_itm_status': 'ITM',
-                    'entry_premium_received': 1.50,
-                    'grok_confidence': 62,
-                    'days_to_expiration': 24
-                },
-                {
-                    'trade_id': 'SPY_2025_11_07_001',
-                    'ticker': 'SPY',
-                    'strategy_type': 'Iron Condor',
-                    'short_strike': 567.00,
-                    'long_strike': 564.00,
-                    'expiration_date': '2025-11-07',
-                    'current_itm_status': 'OTM',
-                    'entry_premium_received': 2.10,
-                    'grok_confidence': 88,
-                    'days_to_expiration': 31
-                },
-                {
-                    'trade_id': 'DIA_2025_10_17_001',
-                    'ticker': 'DIA',
-                    'strategy_type': 'Bull Put Spread',
-                    'short_strike': 425.00,
-                    'long_strike': 420.00,
-                    'expiration_date': '2025-10-17',
-                    'current_itm_status': 'OTM',
-                    'entry_premium_received': 0.85,
-                    'grok_confidence': 81,
-                    'days_to_expiration': 10
-                }
-            ]
-            
-            return jsonify({
-                'success': True,
-                'trades': mock_trades,
-                'count': len(mock_trades),
-                'source': 'mock',
-                'last_updated': datetime.now().isoformat()
-            })
+        # Import TastyTrade functions
+        from tt import get_account_positions
         
-        # Get live trades from database
-        trades = get_open_trades()
+        # Get live positions from TastyTrade
+        positions = get_account_positions()
         
-        if trades:
-            # Convert Decimal objects to float for JSON serialization
-            for trade in trades:
-                for key, value in trade.items():
-                    if isinstance(value, Decimal):
-                        trade[key] = float(value)
-            
-            return jsonify({
-                'success': True,
-                'trades': trades,
-                'count': len(trades),
-                'source': 'database',
-                'last_updated': datetime.now().isoformat()
-            })
-        else:
+        if not positions:
             return jsonify({
                 'success': True,
                 'trades': [],
                 'count': 0,
-                'message': 'No live trades available'
+                'source': 'tastytrade_live',
+                'last_updated': datetime.now().isoformat(),
+                'message': 'No active positions found'
             })
-            
+        
+        # Convert TastyTrade positions to trade format
+        live_trades = []
+        for position in positions:
+            # Only include SPY options for public display
+            if position.get('underlying_symbol') != 'SPY':
+                continue
+                
+            # Skip if not an option
+            if position.get('instrument_type') != 'Equity Option':
+                continue
+                
+            try:
+                # Calculate strategy type based on position
+                if position['quantity'] > 0:
+                    strategy_type = f"Long {position['option_type']}"
+                else:
+                    strategy_type = f"Short {position['option_type']}"
+                
+                # Calculate days to expiration
+                from datetime import datetime
+                exp_date = datetime.strptime(position['expiration_date'], '%Y-%m-%d')
+                days_to_exp = (exp_date - datetime.now()).days
+                
+                # Format trade for display
+                trade = {
+                    'trade_id': f"TT_{position['underlying_symbol']}_{position['expiration_date']}_{position['strike_price']:.0f}{position['option_type'][0]}",
+                    'ticker': position['underlying_symbol'],
+                    'strategy_type': strategy_type,
+                    'short_strike': position['strike_price'],
+                    'long_strike': position['strike_price'],  # For single options
+                    'expiration_date': position['expiration_date'],
+                    'current_itm_status': 'UNKNOWN',  # Would need current market data
+                    'entry_premium_received': abs(position['average_open_price'] * position['quantity'] * 100),
+                    'grok_confidence': None,  # No confidence for real trades
+                    'days_to_expiration': days_to_exp,
+                    'quantity': abs(position['quantity']),
+                    'open_date': position.get('created_at', 'Unknown'),
+                    'unrealized_pnl': position.get('unrealized_day_gain_loss', 0)
+                }
+                
+                live_trades.append(trade)
+                
+            except Exception as e:
+                logger.warning(f"Error processing position {position.get('symbol', 'unknown')}: {e}")
+                continue
+        
+        return jsonify({
+            'success': True,
+            'trades': live_trades,
+            'count': len(live_trades),
+            'source': 'tastytrade_live',
+            'last_updated': datetime.now().isoformat()
+        })
+        
     except Exception as e:
-        logger.error(f"❌ Error getting live trades: {e}")
+        logger.error(f"Error getting live trades from TastyTrade: {e}")
+        
+        # Fallback to database if TastyTrade fails
+        try:
+            if DATABASE_AVAILABLE:
+                from unified_database import get_open_trades
+                db_trades = get_open_trades()
+                
+                return jsonify({
+                    'success': True,
+                    'trades': db_trades[:5],  # Limit to 5 most recent
+                    'count': len(db_trades[:5]),
+                    'source': 'database_fallback',
+                    'last_updated': datetime.now().isoformat(),
+                    'note': 'TastyTrade API unavailable, showing database trades'
+                })
+        except Exception as db_error:
+            logger.error(f"Database fallback failed: {db_error}")
+        
         return jsonify({
             'success': False,
-            'error': 'Internal server error'
+            'error': 'Unable to retrieve live trades',
+            'source': 'error'
         }), 500
 
 @public_routes.route('/api/public/latest-analysis')
