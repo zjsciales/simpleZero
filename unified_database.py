@@ -424,7 +424,7 @@ class DatabaseManager:
                             CASE WHEN current_underlying_price > short_strike THEN 'ITM' ELSE 'OTM' END
                         ELSE 'UNKNOWN'
                     END as itm_otm_status,
-                    EXTRACT(days FROM (expiration_date - CURRENT_DATE)) as days_to_expiration
+                    EXTRACT(DAY FROM (expiration_date - CURRENT_DATE)) as days_to_expiration
                 FROM trades 
                 WHERE status = 'OPEN' AND ticker = 'SPY'
                 ORDER BY entry_date DESC

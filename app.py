@@ -349,10 +349,13 @@ def api_sync_positions():
         positions = get_account_positions()
         
         if positions is None:
+            logger.error("❌ Could not retrieve positions from TastyTrade")
             return jsonify({
                 'success': False,
                 'error': 'Could not retrieve positions from TastyTrade'
             }), 500
+        
+        logger.info(f"📊 Retrieved {len(positions)} positions from TastyTrade")
         
         # Import unified database for storing positions
         from unified_database import db_manager
@@ -360,13 +363,19 @@ def api_sync_positions():
         # Clear existing OPEN trades for SPY to avoid duplicates
         # (We'll replace them with fresh data from TastyTrade)
         clear_query = "DELETE FROM trades WHERE status = 'OPEN' AND ticker = 'SPY'"
-        db_manager.execute_query(clear_query, fetch=False)
+        try:
+            db_manager.execute_query(clear_query, fetch=False)
+            logger.info("✅ Cleared existing OPEN SPY trades")
+        except Exception as e:
+            logger.error(f"❌ Failed to clear existing trades: {e}")
         
         synced_count = 0
         
         # Convert positions to trade records
         for position in positions:
             try:
+                logger.info(f"🔄 Processing position: {position['symbol']}")
+                
                 # Generate a trade ID based on the position
                 trade_id = f"TT_{position['underlying_symbol']}_{position['expiration_date']}_{position['strike_price']:.0f}{position['option_type'][0]}"
                 
@@ -375,6 +384,8 @@ def api_sync_positions():
                     strategy_type = f"Long {position['option_type']}"
                 else:
                     strategy_type = f"Short {position['option_type']}"
+                
+                logger.info(f"  💼 Trade ID: {trade_id}, Strategy: {strategy_type}")
                 
                 # Insert position as a trade record
                 insert_query = """
@@ -415,10 +426,13 @@ def api_sync_positions():
                 
                 db_manager.execute_query(insert_query, params, fetch=False)
                 synced_count += 1
+                logger.info(f"  ✅ Synced position: {trade_id}")
                 
             except Exception as e:
-                print(f"❌ Failed to sync position {position['symbol']}: {e}")
+                logger.error(f"❌ Failed to sync position {position.get('symbol', 'unknown')}: {e}")
                 continue
+        
+        logger.info(f"🎉 Sync complete: {synced_count}/{len(positions)} positions synced")
         
         return jsonify({
             'success': True,
