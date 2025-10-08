@@ -17,9 +17,10 @@ from decimal import Decimal
 try:
     from unified_database import (
         get_recent_performance, get_open_trades, get_recent_grok_analyses,
-        test_database_connection
+        get_featured_analysis, get_latest_market_snapshot, test_database_connection
     )
     DATABASE_AVAILABLE = True
+    print("✅ Using unified database")
 except ImportError as e:
     print(f"⚠️ Unified database not available: {e}")
     # Try legacy database
