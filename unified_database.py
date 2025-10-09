@@ -457,13 +457,16 @@ class DatabaseManager:
     def get_recent_grok_analyses(self, limit: int = 10) -> List[Dict]:
         """Get recent Grok analyses (unified interface) - SPY only"""
         try:
+            logger.info(f"🔍 Getting recent Grok analyses (limit: {limit})")
+            
             if self.use_postgresql:
                 query = """
                 SELECT 
-                    analysis_id, ticker, dte, analysis_date, response_text,
-                    underlying_price, recommended_strategy, confidence_score
+                    analysis_id, ticker, dte, analysis_date, response_text, prompt_text,
+                    underlying_price, recommended_strategy, confidence_score,
+                    market_outlook, key_levels, related_trade_id
                 FROM grok_analyses 
-                WHERE ticker = 'SPY'
+                WHERE ticker = 'SPY' AND response_text IS NOT NULL AND response_text != ''
                 ORDER BY analysis_date DESC 
                 LIMIT %s
                 """
@@ -480,6 +483,15 @@ class DatabaseManager:
                 """
             
             result = self.execute_query(query, (limit,))
+            
+            if result and self.use_postgresql:
+                # Add missing fields that the template expects for PostgreSQL results
+                for analysis in result:
+                    analysis['is_featured'] = False  # Default: not featured
+                    analysis['public_title'] = None  # Use default title generation
+                    analysis['executed_trade_id'] = analysis.get('related_trade_id')
+            
+            logger.info(f"✅ Found {len(result) if result else 0} Grok analyses")
             return result or []
             
         except Exception as e:
@@ -586,12 +598,15 @@ def get_open_trades():
 def get_recent_grok_analyses(limit: int = 10):
     """Get recent Grok analyses - SPY only"""
     try:
+        logger.info(f"🔍 [Standalone] Getting recent Grok analyses (limit: {limit})")
+        
         if db_manager.use_postgresql:
             query = """
             SELECT analysis_id, ticker, dte, analysis_date, underlying_price,
-                   prompt_text, response_text, confidence_score, recommended_strategy
+                   prompt_text, response_text, confidence_score, recommended_strategy,
+                   market_outlook, key_levels, related_trade_id
             FROM grok_analyses 
-            WHERE ticker = 'SPY'
+            WHERE ticker = 'SPY' AND response_text IS NOT NULL AND response_text != ''
             ORDER BY analysis_date DESC 
             LIMIT %s
             """
@@ -606,11 +621,19 @@ def get_recent_grok_analyses(limit: int = 10):
             """
         
         result = db_manager.execute_query(query, (limit,))
-        return result or []
+        
+        if result and db_manager.use_postgresql:
+            # Add missing fields that the template expects
+            for analysis in result:
+                analysis['is_featured'] = False
+                analysis['public_title'] = None
+                analysis['executed_trade_id'] = analysis.get('related_trade_id')
+        
+        logger.info(f"✅ [Standalone] Found {len(result) if result else 0} analyses")
         return result or []
         
     except Exception as e:
-        logger.error(f"❌ Error getting recent analyses: {e}")
+        logger.error(f"❌ [Standalone] Error getting recent analyses: {e}")
         return []
 
 def get_featured_analysis():
