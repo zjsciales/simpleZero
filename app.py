@@ -1003,12 +1003,29 @@ def grok_analysis():
             
             # 🔴 SAVE ANALYSIS TO DATABASE
             try:
-                from unified_database import store_grok_analysis
+                from unified_database import db_manager
                 
-                # Get market data for current price
+                # Get market data for current price - handle if market_data is function vs dict
                 current_price = 0.0
-                if market_data and market_data.get('current_price'):
-                    current_price = float(market_data.get('current_price', 0))
+                try:
+                    if market_data:
+                        if callable(market_data):
+                            # market_data is a function, call it
+                            logger.warning("⚠️ market_data is a function, attempting to call it")
+                            actual_market_data = market_data()
+                        else:
+                            # market_data is already a dict
+                            actual_market_data = market_data
+                        
+                        if actual_market_data and isinstance(actual_market_data, dict):
+                            current_price = float(actual_market_data.get('current_price', 0))
+                        else:
+                            logger.warning(f"⚠️ Unexpected market_data type: {type(actual_market_data)}")
+                except Exception as price_error:
+                    logger.error(f"❌ Error extracting current price: {price_error}")
+                    current_price = 0.0
+                
+                analysis_id = f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
                 analysis_data = {
                     # Market snapshot data
@@ -1031,9 +1048,15 @@ def grok_analysis():
                     'related_trade_id': None
                 }
                 
-                success = store_grok_analysis(analysis_data)
+                # Reset database connection first (due to transaction errors)
+                try:
+                    db_manager.reset_connection()
+                except:
+                    pass  # Ignore reset errors
+                
+                success = db_manager.store_grok_analysis(analysis_data)
                 if success:
-                    print(f"✅ Saved Grok analysis to database: {analysis_data['analysis_id']}")
+                    print(f"✅ Saved Grok analysis to database: {analysis_id}")
                 else:
                     print("⚠️ Failed to save Grok analysis to database")
             except Exception as db_error:

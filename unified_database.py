@@ -519,7 +519,7 @@ class DatabaseManager:
                     market_outlook, key_levels, related_trade_id
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                ) ON CONFLICT DO NOTHING
+                )
                 """
                 params = (
                     analysis_data.get('ticker', 'SPY'),
@@ -568,6 +568,32 @@ class DatabaseManager:
             logger.error(f"❌ Failed to store Grok analysis: {e}")
             logger.error(f"🔍 Analysis data keys: {list(analysis_data.keys()) if analysis_data else 'None'}")
             return False
+    
+    def reset_connection(self):
+        """Reset database connection state (useful for PostgreSQL transaction errors)"""
+        try:
+            if self.use_postgresql and self._postgres_conn:
+                logger.info("🔄 Resetting PostgreSQL connection state...")
+                try:
+                    self._postgres_conn.rollback()
+                    logger.info("✅ PostgreSQL transaction rolled back")
+                except Exception as e:
+                    logger.warning(f"⚠️ Rollback warning: {e}")
+                
+                # Test connection with simple query
+                try:
+                    with self._postgres_conn.cursor() as cursor:
+                        cursor.execute("SELECT 1;")
+                        cursor.fetchone()
+                    logger.info("✅ PostgreSQL connection verified")
+                except Exception as e:
+                    logger.error(f"❌ PostgreSQL connection test failed: {e}")
+                    # Try to reconnect
+                    self._init_postgresql()
+            else:
+                logger.info("ℹ️ Using SQLite - no connection reset needed")
+        except Exception as e:
+            logger.error(f"❌ Connection reset failed: {e}")
     
     def close(self):
         """Close database connections"""
