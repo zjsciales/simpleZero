@@ -489,67 +489,69 @@ class DatabaseManager:
     def store_grok_analysis(self, analysis_data: Dict) -> bool:
         """Store Grok analysis (unified interface)"""
         try:
+            logger.info(f"💾 Storing Grok analysis: {analysis_data.get('ticker', 'SPY')} DTE:{analysis_data.get('dte', 0)}")
+            
             if self.use_postgresql:
+                # Match your actual PostgreSQL table structure
                 query = """
                 INSERT INTO grok_analyses (
-                    analysis_id, ticker, dte, analysis_date, prompt_text, response_text,
-                    include_sentiment, underlying_price, recommended_strategy, confidence_score
+                    analysis_id, ticker, dte, analysis_date, underlying_price,
+                    prompt_text, response_text, confidence_score, recommended_strategy,
+                    market_outlook, key_levels, related_trade_id
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 ) ON CONFLICT (analysis_id) DO UPDATE SET
                     response_text = EXCLUDED.response_text,
-                    confidence_score = EXCLUDED.confidence_score
+                    confidence_score = EXCLUDED.confidence_score,
+                    market_outlook = EXCLUDED.market_outlook,
+                    key_levels = EXCLUDED.key_levels
                 """
                 params = (
                     analysis_data.get('analysis_id'),
                     analysis_data.get('ticker', 'SPY'),
                     analysis_data.get('dte', 0),
                     analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('underlying_price', 0.0),
                     analysis_data.get('prompt_text', ''),
                     analysis_data.get('response_text', ''),
-                    analysis_data.get('include_sentiment', True),
-                    analysis_data.get('underlying_price', 0),
+                    analysis_data.get('confidence_score'),
                     analysis_data.get('recommended_strategy'),
-                    analysis_data.get('confidence_score')
+                    analysis_data.get('market_outlook'),
+                    analysis_data.get('key_levels'),
+                    analysis_data.get('related_trade_id')
                 )
+                logger.info(f"🔍 PostgreSQL params: analysis_id={params[0]}, ticker={params[1]}, underlying_price={params[4]}")
             else:
                 query = """
                 INSERT OR REPLACE INTO grok_analyses (
-                    analysis_id, ticker, dte, analysis_date, prompt_text, response_text,
-                    include_sentiment, underlying_price, recommended_strategy, confidence_score
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    analysis_id, ticker, dte, analysis_date, underlying_price,
+                    prompt_text, response_text, confidence_score, recommended_strategy
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
                     analysis_data.get('analysis_id'),
                     analysis_data.get('ticker', 'SPY'),
                     analysis_data.get('dte', 0),
                     analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('underlying_price', 0.0),
                     analysis_data.get('prompt_text', ''),
                     analysis_data.get('response_text', ''),
-                    analysis_data.get('include_sentiment', True),
-                    analysis_data.get('underlying_price', 0),
-                    analysis_data.get('recommended_strategy'),
-                    analysis_data.get('confidence_score')
-                )
-                params = (
-                    analysis_data.get('analysis_id'),
-                    analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('dte', 0),
-                    analysis_data.get('analysis_date', datetime.now()),
-                    analysis_data.get('prompt_text', ''),
-                    analysis_data.get('response_text', ''),
-                    1 if analysis_data.get('include_sentiment', False) else 0,
-                    analysis_data.get('underlying_price', 0),
-                    analysis_data.get('recommended_strategy'),
-                    analysis_data.get('confidence_score')
+                    analysis_data.get('confidence_score'),
+                    analysis_data.get('recommended_strategy')
                 )
             
             self.execute_query(query, params, fetch=False)
             logger.info(f"✅ Stored Grok analysis: {analysis_data.get('analysis_id')}")
+            
+            # Verify the storage worked
+            verification_query = "SELECT COUNT(*) FROM grok_analyses WHERE analysis_id = %s" if self.use_postgresql else "SELECT COUNT(*) FROM grok_analyses WHERE analysis_id = ?"
+            result = self.execute_query(verification_query, (analysis_data.get('analysis_id'),))
+            logger.info(f"🔍 Verification: {result[0] if result else 'Failed'} record(s) found")
             return True
             
         except Exception as e:
             logger.error(f"❌ Failed to store Grok analysis: {e}")
+            logger.error(f"🔍 Analysis data keys: {list(analysis_data.keys()) if analysis_data else 'None'}")
             return False
     
     def close(self):
