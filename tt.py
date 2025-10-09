@@ -3412,31 +3412,37 @@ def get_account_positions(account_number=None):
                 all_positions_debug = []  # For debugging
                 
                 for position in positions:
-                    instrument = position.get('instrument', {})
-                    instrument_type = instrument.get('instrument-type')
+                    # TastyTrade embeds instrument data directly in position object
+                    instrument_type = position.get('instrument-type')
+                    symbol = position.get('symbol', '')
+                    underlying_symbol = position.get('underlying-symbol', '')
+                    quantity = position.get('quantity', 0)
                     
-                # Debug: Track all position types with full data structure
-                print(f"🔍 RAW POSITION DATA: {position}")
-                print(f"🔍 RAW INSTRUMENT DATA: {instrument}")
-                
-                all_positions_debug.append({
-                    'type': instrument_type,
-                    'symbol': instrument.get('symbol', ''),
-                    'underlying': instrument.get('underlying-symbol', ''),
-                    'quantity': position.get('quantity', 0),
-                    'raw_position': position,
-                    'raw_instrument': instrument
-                })
-                
-                if instrument_type == 'Equity Option':
-                        symbol = instrument.get('symbol', '')
-                        underlying_symbol = instrument.get('underlying-symbol', '')
-                        
+                    # Debug: Track all position types with full data structure
+                    print(f"🔍 RAW POSITION DATA: {position}")
+                    print(f"🔍 PARSED - Type: {instrument_type}, Symbol: {symbol}, Underlying: {underlying_symbol}, Qty: {quantity}")
+                    
+                    # Check for all possible option-related fields
+                    print(f"🔍 OPTION FIELDS CHECK:")
+                    print(f"   - option-type: {position.get('option-type', 'NOT FOUND')}")
+                    print(f"   - strike-price: {position.get('strike-price', 'NOT FOUND')}")
+                    print(f"   - expiration-date: {position.get('expiration-date', 'NOT FOUND')}")
+                    print(f"   - days-to-expiration: {position.get('days-to-expiration', 'NOT FOUND')}")
+                    
+                    all_positions_debug.append({
+                        'type': instrument_type,
+                        'symbol': symbol,
+                        'underlying': underlying_symbol,
+                        'quantity': quantity,
+                        'raw_position': position
+                    })
+                    
+                    if instrument_type == 'Equity Option':
                         # DEBUG: Show all options positions, not just SPY
                         options_positions.append({
                             'symbol': symbol,
                             'underlying_symbol': underlying_symbol,
-                            'quantity': int(position.get('quantity', 0)),
+                            'quantity': int(quantity),
                             'average_open_price': float(position.get('average-open-price', 0)),
                             'mark': float(position.get('mark', 0)),
                             'mark_value': float(position.get('mark-value', 0)),
@@ -3446,10 +3452,10 @@ def get_account_positions(account_number=None):
                             'created_at': position.get('created-at', ''),
                             'updated_at': position.get('updated-at', ''),
                             'instrument_type': instrument_type,
-                            'option_type': instrument.get('option-type', ''),
-                            'strike_price': float(instrument.get('strike-price', 0)),
-                            'expiration_date': instrument.get('expiration-date', ''),
-                            'days_to_expiration': instrument.get('days-to-expiration', 0)
+                            'option_type': position.get('option-type', ''),
+                            'strike_price': float(position.get('strike-price', 0)),
+                            'expiration_date': position.get('expiration-date', ''),
+                            'days_to_expiration': position.get('days-to-expiration', 0)
                         })
                 
                 # Debug logging
@@ -3458,8 +3464,18 @@ def get_account_positions(account_number=None):
                     print(f"   📍 {pos['type']}: {pos['symbol']} ({pos['underlying']}) - Qty: {pos['quantity']}")
                 
                 print(f"✅ Found {len(options_positions)} total options positions")
-                for pos in options_positions:
-                    print(f"   📍 {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
+                if len(options_positions) == 0:
+                    print(f"ℹ️  EXPLANATION: No 'Equity Option' positions found in account.")
+                    print(f"ℹ️  Account has {len(all_positions_debug)} total positions:")
+                    equity_count = sum(1 for pos in all_positions_debug if pos['type'] == 'Equity')
+                    other_count = len(all_positions_debug) - equity_count
+                    print(f"ℹ️  - {equity_count} Equity positions (stocks/ETFs)")
+                    if other_count > 0:
+                        print(f"ℹ️  - {other_count} other position types")
+                    print(f"ℹ️  To see live trades, the account needs open options positions.")
+                else:
+                    for pos in options_positions:
+                        print(f"   📍 {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
                 
                 # Filter to SPY for the final return (keep public display clean)
                 spy_positions = [pos for pos in options_positions if pos['underlying_symbol'] == 'SPY']
