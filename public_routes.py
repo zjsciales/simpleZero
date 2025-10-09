@@ -319,7 +319,10 @@ def api_public_analysis_library():
         per_page = request.args.get('per_page', 20, type=int)
         ticker = request.args.get('ticker', None)
         
+        logger.info(f"📚 Library request - DATABASE_AVAILABLE: {DATABASE_AVAILABLE}")
+        
         if not DATABASE_AVAILABLE:
+            logger.warning("⚠️ Database not available - returning mock data")
             # Return mock data if database not available
             mock_analyses = [
                 {
@@ -346,16 +349,19 @@ def api_public_analysis_library():
             })
         
         # Get analyses from database with pagination
-        # Note: This would need to be implemented in the database module
+        logger.info(f"🔍 Fetching analyses from database (limit: {per_page})")
         analyses = get_recent_grok_analyses(limit=per_page)
+        logger.info(f"📊 Database returned {len(analyses) if analyses else 0} analyses")
         
         if analyses:
+            logger.info(f"🔍 First analysis sample: {analyses[0] if analyses else 'None'}")
             # Convert Decimal objects to float for JSON serialization
             for analysis in analyses:
                 for key, value in analysis.items():
                     if isinstance(value, Decimal):
                         analysis[key] = float(value)
             
+            logger.info(f"✅ Returning {len(analyses)} analyses from database")
             return jsonify({
                 'success': True,
                 'analyses': analyses,
@@ -365,12 +371,14 @@ def api_public_analysis_library():
                 'source': 'database'
             })
         else:
+            logger.warning("⚠️ No analyses found in database - returning empty result")
             return jsonify({
                 'success': True,
                 'analyses': [],
                 'total': 0,
                 'page': page,
-                'per_page': per_page
+                'per_page': per_page,
+                'source': 'database_empty'
             })
             
     except Exception as e:

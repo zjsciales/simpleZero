@@ -1004,16 +1004,28 @@ def grok_analysis():
             # 🔴 SAVE ANALYSIS TO DATABASE
             try:
                 from unified_database import store_grok_analysis
+                
+                # Get market data for current price
+                current_price = 0.0
+                if market_data and market_data.get('current_price'):
+                    current_price = float(market_data.get('current_price', 0))
+                
                 analysis_data = {
-                    'analysis_id': f"grok_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
+                    # Market snapshot data
                     'ticker': ticker,
-                    'dte': dte,
-                    'analysis_date': datetime.now(),
-                    'prompt_text': f"Comprehensive analysis for {ticker} {dte}DTE",
-                    'response_text': trading_analysis,
-                    'underlying_price': float(market_data.get('current_price', 0)) if market_data.get('current_price') else 0.0,
-                    'recommended_strategy': None,  # Could parse from response
+                    'snapshot_date': datetime.now(),
+                    'current_price': current_price,
+                    'daily_change': 0.0,  # Would need from market data
+                    'daily_change_percent': 0.0,  # Would need from market data
+                    'volume': 0,  # Would need from market data
+                    'implied_volatility': 0.0,  # Would need from market data
+                    'vix_level': 0.0,  # Would need from market data
+                    'market_sentiment': 'NEUTRAL',  # Could parse from response
+                    
+                    # Analysis response data - THE KEY MISSING PIECE!
+                    'response_text': trading_analysis,  # This is the Grok response!
                     'confidence_score': None,  # Could parse from response
+                    'recommended_strategy': None,  # Could parse from response
                     'market_outlook': None,  # Could parse from response
                     'key_levels': None,  # Could parse from response
                     'related_trade_id': None
@@ -1923,49 +1935,6 @@ if __name__ == '__main__':
         print("💡 Install missing packages: pip install schedule")
     except Exception as e:
         print(f"⚠️ Could not initialize automated trading: {e}")
-    
-    # TEST DATABASE ENDPOINT - Remove after confirming works
-    @app.route('/api/test-grok-storage')
-    def test_grok_storage():
-        """Test Grok analysis storage - TEMPORARY"""
-        try:
-            from unified_database import store_grok_analysis, get_recent_grok_analyses
-            
-            # Test data matching your table structure
-            test_data = {
-                'analysis_id': f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                'ticker': 'SPY',
-                'dte': 0,
-                'analysis_date': datetime.now(),
-                'underlying_price': 425.50,
-                'prompt_text': 'Test prompt for SPY 0DTE analysis',
-                'response_text': 'Test Grok response with bullish outlook',
-                'confidence_score': 85,
-                'recommended_strategy': 'Bull Put Spread',
-                'market_outlook': 'Bullish',
-                'key_levels': '424-427 range',
-                'related_trade_id': None
-            }
-            
-            # Try to store
-            store_success = store_grok_analysis(test_data)
-            
-            # Try to retrieve
-            recent_analyses = get_recent_grok_analyses(limit=5)
-            
-            return jsonify({
-                "store_success": store_success,
-                "recent_count": len(recent_analyses),
-                "recent_analyses": recent_analyses[:2],  # Show first 2
-                "test_analysis_id": test_data['analysis_id'],
-                "timestamp": datetime.now().isoformat()
-            })
-            
-        except Exception as e:
-            return jsonify({
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            }), 500
     
     # Start Flask application
     if config.IS_PRODUCTION:

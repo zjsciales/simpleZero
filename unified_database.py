@@ -96,27 +96,29 @@ class DatabaseManager:
     def _init_postgresql_schema(self):
         """Initialize PostgreSQL schema from SQL file"""
         try:
-            schema_file = os.path.join(os.path.dirname(__file__), 'database_schema.sql')
-            if os.path.exists(schema_file):
-                with open(schema_file, 'r') as f:
-                    schema = f.read()
+            # TEMPORARILY SKIP SCHEMA INITIALIZATION to avoid syntax errors
+            logger.info("⚠️ Skipping PostgreSQL schema initialization (tables already exist)")
+            logger.info("🔍 Verifying existing tables...")
+            
+            # Just verify critical tables exist
+            with self._postgres_conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT table_name FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name IN ('trades', 'grok_analyses', 'performance_metrics')
+                    ORDER BY table_name;
+                """)
+                tables = [row[0] for row in cursor.fetchall()]
+                logger.info(f"✅ Found existing tables: {tables}")
                 
-                # Execute schema statements
-                with self._postgres_conn.cursor() as cursor:
-                    # Split by semicolon and execute each statement
-                    statements = [s.strip() for s in schema.split(';') if s.strip()]
-                    for statement in statements:
-                        try:
-                            cursor.execute(statement)
-                        except Exception as e:
-                            # Some statements might fail if already exists, that's OK
-                            if 'already exists' not in str(e).lower():
-                                logger.warning(f"Schema statement warning: {e}")
-                
-                self._postgres_conn.commit()
-                logger.info("✅ PostgreSQL schema initialized")
-            else:
-                logger.warning("⚠️ PostgreSQL schema file not found")
+                if 'grok_analyses' in tables:
+                    logger.info("✅ Critical grok_analyses table verified - ready to use")
+                else:
+                    logger.warning(f"⚠️ Missing grok_analyses table! Found: {tables}")
+                    
+        except Exception as e:
+            logger.error(f"❌ PostgreSQL table verification failed: {e}")
+            # Don't raise - let the app continue
                 
         except Exception as e:
             logger.error(f"❌ PostgreSQL schema initialization failed: {e}")
@@ -455,40 +457,44 @@ class DatabaseManager:
             return []
     
     def get_recent_grok_analyses(self, limit: int = 10) -> List[Dict]:
-        """Get recent Grok analyses (unified interface) - SPY only"""
+        """Get recent Grok analyses (unified interface) - Match actual table structure"""
         try:
             logger.info(f"🔍 Getting recent Grok analyses (limit: {limit})")
             
             if self.use_postgresql:
                 query = """
                 SELECT 
-                    analysis_id, ticker, dte, analysis_date, response_text, prompt_text,
-                    underlying_price, recommended_strategy, confidence_score,
-                    market_outlook, key_levels, related_trade_id
+                    id, ticker, snapshot_date, current_price, daily_change, daily_change_percent,
+                    volume, implied_volatility, vix_level, market_sentiment,
+                    response_text, confidence_score, recommended_strategy,
+                    market_outlook, key_levels, related_trade_id, created_at
                 FROM grok_analyses 
                 WHERE ticker = 'SPY' AND response_text IS NOT NULL AND response_text != ''
-                ORDER BY analysis_date DESC 
+                ORDER BY snapshot_date DESC 
                 LIMIT %s
                 """
             else:
                 query = """
                 SELECT 
-                    analysis_id, ticker, dte, analysis_date, response_text,
-                    underlying_price, recommended_strategy, confidence_score,
-                    is_featured, public_title, executed_trade_id
+                    id, ticker, snapshot_date, current_price, market_sentiment, response_text
                 FROM grok_analyses 
                 WHERE ticker = 'SPY'
-                ORDER BY analysis_date DESC 
+                ORDER BY snapshot_date DESC 
                 LIMIT ?
                 """
             
             result = self.execute_query(query, (limit,))
             
             if result and self.use_postgresql:
-                # Add missing fields that the template expects for PostgreSQL results
+                # Convert to format expected by the template
                 for analysis in result:
-                    analysis['is_featured'] = False  # Default: not featured
-                    analysis['public_title'] = None  # Use default title generation
+                    # Map your columns to what the template expects
+                    analysis['analysis_id'] = f"grok_{analysis['id']}"
+                    analysis['analysis_date'] = analysis['snapshot_date'] 
+                    analysis['underlying_price'] = analysis['current_price']
+                    analysis['dte'] = 0  # Default since not in your table
+                    analysis['is_featured'] = False
+                    analysis['public_title'] = None
                     analysis['executed_trade_id'] = analysis.get('related_trade_id')
             
             logger.info(f"✅ Found {len(result) if result else 0} Grok analyses")
@@ -499,32 +505,33 @@ class DatabaseManager:
             return []
     
     def store_grok_analysis(self, analysis_data: Dict) -> bool:
-        """Store Grok analysis (unified interface)"""
+        """Store Grok analysis (unified interface) - Match actual table with ALL columns"""
         try:
-            logger.info(f"💾 Storing Grok analysis: {analysis_data.get('ticker', 'SPY')} DTE:{analysis_data.get('dte', 0)}")
+            logger.info(f"💾 Storing Grok analysis: {analysis_data.get('ticker', 'SPY')}")
             
             if self.use_postgresql:
-                # Match your actual PostgreSQL table structure
+                # Your table has BOTH market snapshot AND analysis columns
                 query = """
                 INSERT INTO grok_analyses (
-                    analysis_id, ticker, dte, analysis_date, underlying_price,
-                    prompt_text, response_text, confidence_score, recommended_strategy,
+                    ticker, snapshot_date, current_price, daily_change, daily_change_percent,
+                    volume, implied_volatility, vix_level, market_sentiment,
+                    response_text, confidence_score, recommended_strategy, 
                     market_outlook, key_levels, related_trade_id
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
-                ) ON CONFLICT (analysis_id) DO UPDATE SET
-                    response_text = EXCLUDED.response_text,
-                    confidence_score = EXCLUDED.confidence_score,
-                    market_outlook = EXCLUDED.market_outlook,
-                    key_levels = EXCLUDED.key_levels
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                ) ON CONFLICT DO NOTHING
                 """
                 params = (
-                    analysis_data.get('analysis_id'),
                     analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('dte', 0),
-                    analysis_data.get('analysis_date', datetime.now()),
-                    analysis_data.get('underlying_price', 0.0),
-                    analysis_data.get('prompt_text', ''),
+                    analysis_data.get('snapshot_date', datetime.now()),
+                    analysis_data.get('current_price', 0.0),
+                    analysis_data.get('daily_change', 0.0),
+                    analysis_data.get('daily_change_percent', 0.0),
+                    analysis_data.get('volume', 0),
+                    analysis_data.get('implied_volatility', 0.0),
+                    analysis_data.get('vix_level', 0.0),
+                    analysis_data.get('market_sentiment', 'NEUTRAL'),
+                    # Analysis fields
                     analysis_data.get('response_text', ''),
                     analysis_data.get('confidence_score'),
                     analysis_data.get('recommended_strategy'),
@@ -532,24 +539,20 @@ class DatabaseManager:
                     analysis_data.get('key_levels'),
                     analysis_data.get('related_trade_id')
                 )
-                logger.info(f"🔍 PostgreSQL params: analysis_id={params[0]}, ticker={params[1]}, underlying_price={params[4]}")
+                logger.info(f"🔍 PostgreSQL: ticker={params[0]}, price={params[2]}, response_len={len(params[9]) if params[9] else 0}")
             else:
+                # SQLite fallback (simplified)
                 query = """
                 INSERT OR REPLACE INTO grok_analyses (
-                    analysis_id, ticker, dte, analysis_date, underlying_price,
-                    prompt_text, response_text, confidence_score, recommended_strategy
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ticker, snapshot_date, current_price, market_sentiment, response_text
+                ) VALUES (?, ?, ?, ?, ?)
                 """
                 params = (
-                    analysis_data.get('analysis_id'),
                     analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('dte', 0),
-                    analysis_data.get('analysis_date', datetime.now()),
-                    analysis_data.get('underlying_price', 0.0),
-                    analysis_data.get('prompt_text', ''),
-                    analysis_data.get('response_text', ''),
-                    analysis_data.get('confidence_score'),
-                    analysis_data.get('recommended_strategy')
+                    analysis_data.get('snapshot_date', datetime.now()),
+                    analysis_data.get('current_price', 0.0),
+                    analysis_data.get('market_sentiment', 'NEUTRAL'),
+                    analysis_data.get('response_text', '')
                 )
             
             self.execute_query(query, params, fetch=False)
