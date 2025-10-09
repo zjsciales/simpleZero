@@ -670,23 +670,30 @@
 
         async function loadLatestAnalysis() {
             try {
+                console.log('🔄 Loading latest analysis...');
                 const response = await fetch('/api/public/latest-analysis');
+                console.log('📡 Latest analysis response status:', response.status);
+                
                 const data = await response.json();
+                console.log('📊 Latest analysis data:', data);
                 
                 if (data.success && data.analysis) {
+                    console.log('✅ Analysis found, rendering...');
                     renderLatestAnalysis(data.analysis);
                     cachedData.analysis = data.analysis;
                 } else {
+                    console.warn('⚠️ No analysis available:', data.error);
                     throw new Error(data.error || 'No analysis available');
                 }
                 
             } catch (error) {
-                console.error('Error loading latest analysis:', error);
+                console.error('❌ Error loading latest analysis:', error);
                 document.getElementById('grok-analysis-content').innerHTML = `
                     <div class="grok-content">
                         <div style="text-align: center; padding: 20px;">
                             <h3>🤖 Analysis Coming Soon</h3>
                             <p>Latest AI analysis will appear here. Check back in a few minutes!</p>
+                            <small style="color: #666;">Error: ${error.message}</small>
                         </div>
                     </div>
                 `;
@@ -694,6 +701,8 @@
         }
 
         function renderLatestAnalysis(analysis) {
+            console.log('🎨 Rendering analysis:', analysis);
+            
             const analysisHTML = `
                 <div class="grok-content">
                     <div class="grok-meta">
@@ -706,15 +715,54 @@
                             ${analysis.confidence_score ? ` • ${analysis.confidence_score}% Confidence` : ''}
                         </div>
                     </div>
-                    <div class="grok-text">${truncateText(analysis.response_text, 500)}</div>
-                    ${analysis.response_text.length > 500 ? 
-                        '<p style="margin-top: 15px; opacity: 0.8;"><em>View full analysis in library →</em></p>' : 
+                    <div class="grok-text">
+                        ${analysis.response_text ? formatAnalysisText(analysis.response_text) : 'Analysis content not available'}
+                    </div>
+                    ${analysis.response_text && analysis.response_text.length > 500 ? 
+                        '<p style="margin-top: 15px; opacity: 0.8;"><em><a href="/library" style="color: #667eea;">View full analysis in library →</a></em></p>' : 
                         ''
                     }
+                    
+                    <!-- Show prompt if available -->
+                    ${analysis.prompt_text ? `
+                        <details style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea;">
+                            <summary style="cursor: pointer; font-weight: 600; color: #667eea;">📝 View Analysis Prompt</summary>
+                            <div style="margin-top: 10px; white-space: pre-wrap; font-family: monospace; font-size: 0.9em; color: #555;">
+                                ${analysis.prompt_text}
+                            </div>
+                        </details>
+                    ` : ''}
+                    
+                    <!-- Analysis metadata -->
+                    <div style="margin-top: 20px; padding: 10px; background: #f1f3f4; border-radius: 6px; font-size: 0.9em; color: #666;">
+                        <strong>Analysis ID:</strong> ${analysis.analysis_id || 'Unknown'} | 
+                        <strong>Underlying Price:</strong> $${analysis.underlying_price || 'N/A'} | 
+                        <strong>Source:</strong> Grok AI
+                    </div>
                 </div>
             `;
             
             document.getElementById('grok-analysis-content').innerHTML = analysisHTML;
+        }
+        
+        function formatAnalysisText(text) {
+            if (!text) return 'No analysis text available';
+            
+            // Truncate for main display but preserve formatting
+            const maxLength = 500;
+            let displayText = text.length > maxLength ? text.substr(0, maxLength) + '...' : text;
+            
+            // Convert line breaks to HTML
+            displayText = displayText.replace(/\n/g, '<br>');
+            
+            // Make bullet points stand out
+            displayText = displayText.replace(/^• /gm, '🔹 ');
+            displayText = displayText.replace(/\n• /g, '<br>🔹 ');
+            
+            // Bold section headers (text in ALL CAPS followed by colon)
+            displayText = displayText.replace(/([A-Z\s]+):/g, '<strong>$1:</strong>');
+            
+            return displayText;
         }
 
         // Utility functions

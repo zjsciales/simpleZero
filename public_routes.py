@@ -125,41 +125,67 @@ def api_public_live_trades():
         # Convert TastyTrade positions to trade format
         live_trades = []
         for position in positions:
-            # Only include SPY options for public display
-            if position.get('underlying_symbol') != 'SPY':
+            # Only include SPY for public display
+            underlying = position.get('underlying_symbol') or position.get('ticker')
+            if underlying != 'SPY':
                 continue
-                
-            # Skip if not an option
-            if position.get('instrument_type') != 'Equity Option':
-                continue
-                
+            
             try:
-                # Calculate strategy type based on position
-                if position['quantity'] > 0:
-                    strategy_type = f"Long {position['option_type']}"
+                # Handle spreads vs individual positions
+                if position.get('is_spread'):
+                    # This is a detected spread
+                    trade = {
+                        'trade_id': position.get('trade_id', f"SPREAD_{underlying}_{position.get('expiration_date', '')}"),
+                        'ticker': underlying,
+                        'strategy_type': position.get('strategy_type', 'Spread'),
+                        'short_strike': position.get('short_strike', 0),
+                        'long_strike': position.get('long_strike', 0),
+                        'expiration_date': position.get('expiration_date', ''),
+                        'current_itm_status': position.get('current_itm_status', 'UNKNOWN'),
+                        'entry_premium_received': position.get('entry_premium_received', 0),
+                        'entry_premium_paid': position.get('entry_premium_paid', 0),
+                        'expected_credit': position.get('net_premium', 0),
+                        'grok_confidence': position.get('grok_confidence'),
+                        'days_to_expiration': position.get('days_to_expiration', 0),
+                        'quantity': len(position.get('positions', [])),  # Number of legs
+                        'open_date': position.get('created_at', 'Unknown'),
+                        'unrealized_pnl': sum(pos.get('unrealized_day_gain_loss', 0) for pos in position.get('positions', [])),
+                        'is_spread': True
+                    }
                 else:
-                    strategy_type = f"Short {position['option_type']}"
-                
-                # Calculate days to expiration
-                exp_date = datetime.strptime(position['expiration_date'], '%Y-%m-%d')
-                days_to_exp = (exp_date - datetime.now()).days
-                
-                # Format trade for display
-                trade = {
-                    'trade_id': f"TT_{position['underlying_symbol']}_{position['expiration_date']}_{position['strike_price']:.0f}{position['option_type'][0]}",
-                    'ticker': position['underlying_symbol'],
-                    'strategy_type': strategy_type,
-                    'short_strike': position['strike_price'],
-                    'long_strike': position['strike_price'],  # For single options
-                    'expiration_date': position['expiration_date'],
-                    'current_itm_status': 'UNKNOWN',  # Would need current market data
-                    'entry_premium_received': abs(position['average_open_price'] * position['quantity'] * 100),
-                    'grok_confidence': None,  # No confidence for real trades
-                    'days_to_expiration': days_to_exp,
-                    'quantity': abs(position['quantity']),
-                    'open_date': position.get('created_at', 'Unknown'),
-                    'unrealized_pnl': position.get('unrealized_day_gain_loss', 0)
-                }
+                    # Skip if not an option
+                    if position.get('instrument_type') != 'Equity Option':
+                        continue
+                        
+                    # Calculate strategy type based on position
+                    if position['quantity'] > 0:
+                        strategy_type = f"Long {position['option_type']}"
+                    else:
+                        strategy_type = f"Short {position['option_type']}"
+                    
+                    # Calculate days to expiration
+                    exp_date = datetime.strptime(position['expiration_date'], '%Y-%m-%d')
+                    days_to_exp = (exp_date - datetime.now()).days
+                    
+                    # Format trade for display
+                    trade = {
+                        'trade_id': f"TT_{position['underlying_symbol']}_{position['expiration_date']}_{position['strike_price']:.0f}{position['option_type'][0]}",
+                        'ticker': position['underlying_symbol'],
+                        'strategy_type': strategy_type,
+                        'short_strike': position['strike_price'],
+                        'long_strike': position['strike_price'],  # For single options
+                        'expiration_date': position['expiration_date'],
+                        'current_itm_status': 'UNKNOWN',  # Would need current market data
+                        'entry_premium_received': abs(position['average_open_price'] * position['quantity'] * 100) if position['quantity'] < 0 else 0,
+                        'entry_premium_paid': abs(position['average_open_price'] * position['quantity'] * 100) if position['quantity'] > 0 else 0,
+                        'expected_credit': abs(position['average_open_price'] * position['quantity'] * 100),
+                        'grok_confidence': None,  # No confidence for real trades
+                        'days_to_expiration': days_to_exp,
+                        'quantity': abs(position['quantity']),
+                        'open_date': position.get('created_at', 'Unknown'),
+                        'unrealized_pnl': position.get('unrealized_day_gain_loss', 0),
+                        'is_spread': False
+                    }
                 
                 live_trades.append(trade)
                 
@@ -246,11 +272,15 @@ Strong technical setup with low volatility providing good premium collection opp
             })
         
         # Get latest analysis from database
+        print("🔍 Attempting to get featured analysis from database...")
         analysis = get_featured_analysis()
+        print(f"📊 Featured analysis result: {analysis}")
         
         if not analysis:
             # Fallback to most recent analysis
+            print("🔍 Featured analysis not found, trying recent analyses...")
             recent_analyses = get_recent_grok_analyses(limit=1)
+            print(f"📊 Recent analyses result: {recent_analyses}")
             if recent_analyses:
                 analysis = recent_analyses[0]
         
@@ -260,12 +290,14 @@ Strong technical setup with low volatility providing good premium collection opp
                 if isinstance(value, Decimal):
                     analysis[key] = float(value)
             
+            print(f"✅ Returning analysis: {analysis.get('analysis_id', 'unknown')} from {analysis.get('analysis_date', 'unknown')}")
             return jsonify({
                 'success': True,
                 'analysis': analysis,
                 'source': 'database'
             })
         else:
+            print("❌ No analysis found in database")
             return jsonify({
                 'success': False,
                 'error': 'No analysis available'

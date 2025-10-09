@@ -2291,6 +2291,125 @@ def parse_option_symbol(symbol):
         print(f"❌ Error parsing option symbol {symbol}: {e}")
         return None
 
+def detect_option_spreads(positions):
+    """
+    Detect option spreads from a list of positions
+    Groups positions with same ticker and expiration to identify spreads
+    
+    Parameters:
+    positions: List of position dictionaries
+    
+    Returns:
+    List of spread dictionaries and individual position dictionaries
+    """
+    print(f"🔍 Analyzing {len(positions)} positions for spread detection...")
+    
+    # Group positions by ticker and expiration
+    position_groups = {}
+    
+    for position in positions:
+        ticker = position.get('underlying_symbol', '')
+        expiration = position.get('expiration_date', '')
+        option_type = position.get('option_type', '')
+        
+        # Create grouping key
+        group_key = f"{ticker}_{expiration}_{option_type}"
+        
+        if group_key not in position_groups:
+            position_groups[group_key] = []
+        
+        position_groups[group_key].append(position)
+    
+    spreads = []
+    individual_positions = []
+    
+    for group_key, group_positions in position_groups.items():
+        ticker, expiration, option_type = group_key.split('_', 2)
+        
+        if len(group_positions) >= 2:
+            # Potential spread detected
+            print(f"🎯 Potential spread detected: {group_key} with {len(group_positions)} positions")
+            
+            # Sort by strike price
+            group_positions.sort(key=lambda x: x.get('strike_price', 0))
+            
+            # Analyze position quantities to determine spread type
+            long_positions = [p for p in group_positions if p.get('quantity', 0) > 0]
+            short_positions = [p for p in group_positions if p.get('quantity', 0) < 0]
+            
+            if len(long_positions) > 0 and len(short_positions) > 0:
+                # This is a spread (mix of long and short positions)
+                
+                # Calculate net premium
+                total_premium = sum(
+                    pos.get('average_open_price', 0) * pos.get('quantity', 0) * pos.get('multiplier', 100)
+                    for pos in group_positions
+                )
+                
+                # Determine spread type
+                if option_type == 'put':
+                    if total_premium > 0:  # Net credit
+                        spread_type = "Bull Put Spread"
+                    else:  # Net debit
+                        spread_type = "Bear Put Spread"
+                else:  # call
+                    if total_premium > 0:  # Net credit
+                        spread_type = "Bear Call Spread"
+                    else:  # Net debit
+                        spread_type = "Bull Call Spread"
+                
+                # Get strike prices
+                strikes = [pos.get('strike_price', 0) for pos in group_positions]
+                min_strike = min(strikes)
+                max_strike = max(strikes)
+                
+                # Calculate days to expiration
+                from datetime import datetime
+                try:
+                    exp_date = datetime.strptime(expiration, '%Y-%m-%d')
+                    days_to_exp = (exp_date - datetime.now()).days
+                except:
+                    days_to_exp = 0
+                
+                spread = {
+                    'trade_id': f"SPREAD_{ticker}_{expiration}_{min_strike:.0f}_{max_strike:.0f}",
+                    'ticker': ticker,
+                    'strategy_type': spread_type,
+                    'short_strike': max(pos.get('strike_price', 0) for pos in short_positions) if short_positions else max_strike,
+                    'long_strike': min(pos.get('strike_price', 0) for pos in long_positions) if long_positions else min_strike,
+                    'expiration_date': expiration,
+                    'net_premium': abs(total_premium),
+                    'entry_premium_received': abs(total_premium) if total_premium > 0 else 0,
+                    'entry_premium_paid': abs(total_premium) if total_premium < 0 else 0,
+                    'days_to_expiration': days_to_exp,
+                    'positions': group_positions,
+                    'current_itm_status': 'UNKNOWN',  # Would need current market data
+                    'grok_confidence': None,
+                    'is_spread': True
+                }
+                
+                spreads.append(spread)
+                print(f"✅ Detected {spread_type}: ${min_strike:.0f}/${max_strike:.0f} for ${abs(total_premium):.2f}")
+                
+            else:
+                # All same direction - treat as individual positions
+                for position in group_positions:
+                    individual_positions.append({
+                        **position,
+                        'is_spread': False
+                    })
+        else:
+            # Single position
+            for position in group_positions:
+                individual_positions.append({
+                    **position,
+                    'is_spread': False
+                })
+    
+    print(f"🎯 Spread analysis complete: {len(spreads)} spreads, {len(individual_positions)} individual positions")
+    
+    return spreads + individual_positions
+
 def format_options_data(options_data):
     """
     Format options chain data into a readable DataFrame
@@ -3506,9 +3625,20 @@ def get_account_positions(account_number=None):
                     for pos in options_positions:
                         print(f"   📍 {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
                 
+                # Apply spread detection to all options positions
+                print(f"🔍 Applying spread detection to {len(options_positions)} options positions...")
+                analyzed_positions = detect_option_spreads(options_positions)
+                
                 # Filter to SPY for the final return (keep public display clean)
-                spy_positions = [pos for pos in options_positions if pos['underlying_symbol'] == 'SPY']
-                print(f"📊 SPY-only positions: {len(spy_positions)}")
+                spy_positions = [pos for pos in analyzed_positions if pos.get('underlying_symbol') == 'SPY' or pos.get('ticker') == 'SPY']
+                print(f"📊 SPY-only positions after spread detection: {len(spy_positions)}")
+                
+                # Debug: Show what we're returning
+                for pos in spy_positions:
+                    if pos.get('is_spread'):
+                        print(f"   🎯 SPREAD: {pos['strategy_type']} ${pos['short_strike']:.0f}/${pos['long_strike']:.0f}")
+                    else:
+                        print(f"   📍 SINGLE: {pos['symbol']}: {pos['quantity']} @ ${pos['average_open_price']:.2f}")
                 
                 return spy_positions
             else:
