@@ -127,6 +127,18 @@ def dashboard():
                          authenticated=True,
                          config=config)
 
+@app.route('/library')
+def library():
+    """Grok analysis library page - requires authentication"""
+    token = session.get('access_token')
+    if not token:
+        return redirect('/')
+    
+    return render_template('library.html',
+                         environment=config.ENVIRONMENT_NAME,
+                         authenticated=True,
+                         config=config)
+
 @app.route('/login')
 def login():
     """Redirect to TastyTrade OAuth2 authorization"""
@@ -553,81 +565,6 @@ def api_available_dtes():
         print(f"💥 Exception getting available DTEs: {e}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/debug-options')
-def debug_options():
-    """Debug endpoint to inspect raw options data"""
-    try:
-        # Check authentication first
-        if 'access_token' not in session:
-            print("❌ No access token in session")
-            return jsonify({'error': 'Authentication required'}), 401
-        
-        print("🔧 Debug options endpoint called")
-        ticker = request.args.get('ticker', 'SPY')
-        
-        # Get raw options chain data
-        from market_data import get_compact_options_chain
-        from tt import parse_option_symbol
-        raw_data = get_compact_options_chain(ticker)
-        
-        # Process the data to extract useful information
-        all_options = []
-        expiration_dates = set()
-        
-        print(f"🔍 Raw data type: {type(raw_data)}")
-        print(f"🔍 Raw data keys: {list(raw_data.keys()) if isinstance(raw_data, dict) else 'Not a dict'}")
-        
-        if isinstance(raw_data, dict) and raw_data.get('success') and 'symbols' in raw_data:
-            symbols = raw_data['symbols']
-            print(f"🔍 Found {len(symbols)} symbols in raw_data['symbols']")
-            
-            for symbol in symbols:
-                if isinstance(symbol, str):
-                    # Parse the option symbol
-                    parsed = parse_option_symbol(symbol)
-                    if parsed:
-                        option_info = {
-                            'symbol': symbol,
-                            'expiration_date': parsed.get('expiration_date', 'Unknown'),
-                            'strike_price': parsed.get('strike_price', 'Unknown'),
-                            'option_type': parsed.get('option_type', 'Unknown'),
-                            'underlying': parsed.get('underlying', 'Unknown')
-                        }
-                        all_options.append(option_info)
-                        
-                        # Track expiration dates
-                        exp_date = parsed.get('expiration_date')
-                        if exp_date:
-                            expiration_dates.add(exp_date)
-                    else:
-                        print(f"⚠️ Could not parse symbol: {symbol}")
-        else:
-            print(f"🔍 Raw data format not as expected. Success: {raw_data.get('success')}, has symbols: {'symbols' in raw_data}")
-        
-        # Sort expiration dates
-        sorted_expirations = sorted(list(expiration_dates))
-        
-        # Get sample options (first 1000)
-        sample_options = all_options[:1000]
-        
-        return jsonify({
-            'success': True,
-            'ticker': ticker,
-            'total_options': len(all_options),
-            'unique_expirations': len(sorted_expirations),
-            'response_type': str(type(raw_data)),
-            'raw_response_keys': list(raw_data.keys()) if isinstance(raw_data, dict) else [],
-            'expiration_dates': sorted_expirations,
-            'sample_options': sample_options,
-            'raw_data_preview': str(raw_data)[:1000],  # First 1000 chars for debugging
-            'raw_symbols_count': len(raw_data.get('symbols', [])) if isinstance(raw_data, dict) else 0
-        })
-    except Exception as e:
-        print(f"💥 Exception in debug options: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
-
 @app.route('/api/trading-range')
 def api_trading_range():
     """API endpoint for trading range calculation"""
@@ -802,64 +739,6 @@ def monitor_closed_trades():
             'closed_trades_processed': 0
         }), 500
 
-@app.route('/api/test-database')
-def test_database():
-    """Test database connectivity and show recent data"""
-    try:
-        from unified_database import get_recent_grok_analyses, get_recent_trades, DatabaseManager
-        
-        # Test basic connectivity
-        db_manager = DatabaseManager()
-        conn = db_manager.get_connection()
-        
-        if conn:
-            print("✅ Database connection successful")
-            
-            # Get recent data
-            recent_analyses = get_recent_grok_analyses(limit=5)
-            recent_trades = get_recent_trades(limit=5)
-            
-            # Test a simple query
-            cursor = conn.cursor()
-            if db_manager.db_type == 'postgresql':
-                cursor.execute("SELECT COUNT(*) FROM grok_analyses")
-            else:
-                cursor.execute("SELECT COUNT(*) FROM grok_analyses")
-            
-            analyses_count = cursor.fetchone()[0]
-            
-            if db_manager.db_type == 'postgresql':
-                cursor.execute("SELECT COUNT(*) FROM trades")
-            else:
-                cursor.execute("SELECT COUNT(*) FROM trades")
-                
-            trades_count = cursor.fetchone()[0]
-            
-            conn.close()
-            
-            return jsonify({
-                'success': True,
-                'database_type': db_manager.db_type,
-                'database_url': db_manager.database_url if db_manager.db_type == 'postgresql' else 'SQLite local file',
-                'total_analyses': analyses_count,
-                'total_trades': trades_count,
-                'recent_analyses': recent_analyses[:3],  # Show first 3
-                'recent_trades': recent_trades[:3],     # Show first 3
-                'message': f'Database working! {analyses_count} analyses, {trades_count} trades stored'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to connect to database'
-            }), 500
-            
-    except Exception as e:
-        print(f"💥 Database test error: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
 @app.route('/api/generate-prompt', methods=['POST'])
 def generate_prompt():
     """API endpoint to generate and preview the Grok prompt"""
@@ -1027,19 +906,14 @@ def grok_analysis():
                 
                 analysis_id = f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
+                # Prepare analysis data with correct field names for our fixed schema
                 analysis_data = {
-                    # Market snapshot data
+                    'analysis_id': analysis_id,
                     'ticker': ticker,
-                    'snapshot_date': datetime.now(),
-                    'current_price': current_price,
-                    'daily_change': 0.0,  # Would need from market data
-                    'daily_change_percent': 0.0,  # Would need from market data
-                    'volume': 0,  # Would need from market data
-                    'implied_volatility': 0.0,  # Would need from market data
-                    'vix_level': 0.0,  # Would need from market data
-                    'market_sentiment': 'NEUTRAL',  # Could parse from response
-                    
-                    # Analysis response data - THE KEY MISSING PIECE!
+                    'dte': dte,
+                    'analysis_date': datetime.now(),
+                    'underlying_price': current_price,
+                    'prompt_text': '',  # Could be added if available
                     'response_text': trading_analysis,  # This is the Grok response!
                     'confidence_score': None,  # Could parse from response
                     'recommended_strategy': None,  # Could parse from response
@@ -1229,51 +1103,6 @@ def account_streaming():
         print(f"💥 Exception in account streaming: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
-@app.route('/api/test-order-message', methods=['POST'])
-def test_order_message():
-    """API endpoint to add test order message for UI testing"""
-    try:
-        if not session.get('access_token'):
-            return jsonify({'error': 'Not authenticated'}), 401
-            
-        from account_streamer import add_test_order_message
-        result = add_test_order_message()
-        return jsonify(result)
-        
-    except Exception as e:
-        print(f"💥 Exception in test order message: {e}")
-        return jsonify({'error': f'Exception: {str(e)}'}), 500
-
-@app.route('/api/test-fill-message', methods=['POST'])
-def test_fill_message():
-    """API endpoint to add test fill message for UI testing"""
-    try:
-        if not session.get('access_token'):
-            return jsonify({'error': 'Not authenticated'}), 401
-            
-        from account_streamer import add_test_fill_message
-        result = add_test_fill_message()
-        return jsonify(result)
-        
-    except Exception as e:
-        print(f"💥 Exception in test fill message: {e}")
-        return jsonify({'error': f'Exception: {str(e)}'}), 500
-
-@app.route('/api/latest-trade-recommendation')
-def get_latest_trade_recommendation():
-    """API endpoint to get the latest trade recommendation"""
-    try:
-        from trader_integration import get_latest_trade_recommendation
-        user_session_id = session.get('session_id') or session.get('user_session_id')
-        
-        result = get_latest_trade_recommendation(session_id=user_session_id)
-        
-        return jsonify(result)
-        
-    except Exception as e:
-        print(f"💥 Exception getting latest trade recommendation: {e}")
-        return jsonify({'error': f'Exception: {str(e)}'}), 500
-
 @app.route('/api/cached-grok-response')
 def get_cached_grok_response():
     """API endpoint to get the latest cached Grok response - prioritizes automation results"""
@@ -1353,6 +1182,48 @@ def get_cached_grok_response():
         
     except Exception as e:
         print(f"💥 Exception getting cached Grok response: {e}")
+        return jsonify({'error': f'Exception: {str(e)}'}), 500
+
+@app.route('/api/library-analyses')
+def get_library_analyses():
+    """API endpoint to get Grok analyses for the library page"""
+    try:
+        # Check authentication first
+        token = session.get('access_token')
+        if not token:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        # Get pagination parameters
+        limit = request.args.get('limit', 20, type=int)
+        
+        # Get analyses from unified database
+        from unified_database import get_recent_grok_analyses
+        analyses = get_recent_grok_analyses(limit=limit)
+        
+        if analyses:
+            # Convert any Decimal objects to float for JSON serialization
+            from decimal import Decimal
+            for analysis in analyses:
+                for key, value in analysis.items():
+                    if isinstance(value, Decimal):
+                        analysis[key] = float(value)
+            
+            return jsonify({
+                'success': True,
+                'analyses': analyses,
+                'total': len(analyses),
+                'limit': limit
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'analyses': [],
+                'total': 0,
+                'limit': limit
+            })
+            
+    except Exception as e:
+        print(f"💥 Exception getting library analyses: {e}")
         return jsonify({'error': f'Exception: {str(e)}'}), 500
 
 @app.route('/trade')

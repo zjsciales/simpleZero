@@ -464,22 +464,23 @@ class DatabaseManager:
             if self.use_postgresql:
                 query = """
                 SELECT 
-                    id, ticker, snapshot_date, current_price, daily_change, daily_change_percent,
+                    id, ticker, analysis_date, underlying_price, daily_change, daily_change_percent,
                     volume, implied_volatility, vix_level, market_sentiment,
                     response_text, confidence_score, recommended_strategy,
                     market_outlook, key_levels, related_trade_id, created_at
                 FROM grok_analyses 
                 WHERE ticker = 'SPY' AND response_text IS NOT NULL AND response_text != ''
-                ORDER BY snapshot_date DESC 
+                ORDER BY analysis_date DESC 
                 LIMIT %s
                 """
             else:
                 query = """
                 SELECT 
-                    id, ticker, snapshot_date, current_price, market_sentiment, response_text
+                    id, ticker, analysis_date, underlying_price, market_conditions, response_text,
+                    confidence_score, recommended_strategy
                 FROM grok_analyses 
                 WHERE ticker = 'SPY'
-                ORDER BY snapshot_date DESC 
+                ORDER BY analysis_date DESC 
                 LIMIT ?
                 """
             
@@ -488,11 +489,11 @@ class DatabaseManager:
             if result and self.use_postgresql:
                 # Convert to format expected by the template
                 for analysis in result:
-                    # Map your columns to what the template expects
+                    # Map columns to standard format
                     analysis['analysis_id'] = f"grok_{analysis['id']}"
-                    analysis['analysis_date'] = analysis['snapshot_date'] 
-                    analysis['underlying_price'] = analysis['current_price']
-                    analysis['dte'] = 0  # Default since not in your table
+                    # analysis_date is already correct
+                    # underlying_price is already correct
+                    analysis['dte'] = 0  # Default since not in your table structure yet
                     analysis['is_featured'] = False
                     analysis['public_title'] = None
                     analysis['executed_trade_id'] = analysis.get('related_trade_id')
@@ -510,28 +511,23 @@ class DatabaseManager:
             logger.info(f"💾 Storing Grok analysis: {analysis_data.get('ticker', 'SPY')}")
             
             if self.use_postgresql:
-                # Your table has BOTH market snapshot AND analysis columns
+                # Match actual PostgreSQL schema from railway_schema.sql
                 query = """
                 INSERT INTO grok_analyses (
-                    ticker, snapshot_date, current_price, daily_change, daily_change_percent,
-                    volume, implied_volatility, vix_level, market_sentiment,
-                    response_text, confidence_score, recommended_strategy, 
-                    market_outlook, key_levels, related_trade_id
+                    analysis_id, ticker, dte, analysis_date, underlying_price,
+                    prompt_text, response_text, confidence_score,
+                    recommended_strategy, market_outlook, key_levels, related_trade_id
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """
                 params = (
+                    analysis_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
                     analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('snapshot_date', datetime.now()),
-                    analysis_data.get('current_price', 0.0),
-                    analysis_data.get('daily_change', 0.0),
-                    analysis_data.get('daily_change_percent', 0.0),
-                    analysis_data.get('volume', 0),
-                    analysis_data.get('implied_volatility', 0.0),
-                    analysis_data.get('vix_level', 0.0),
-                    analysis_data.get('market_sentiment', 'NEUTRAL'),
-                    # Analysis fields
+                    analysis_data.get('dte', 0),
+                    analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('underlying_price', 0.0),
+                    analysis_data.get('prompt_text', ''),
                     analysis_data.get('response_text', ''),
                     analysis_data.get('confidence_score'),
                     analysis_data.get('recommended_strategy'),
@@ -539,29 +535,41 @@ class DatabaseManager:
                     analysis_data.get('key_levels'),
                     analysis_data.get('related_trade_id')
                 )
-                logger.info(f"🔍 PostgreSQL: ticker={params[0]}, price={params[2]}, response_len={len(params[9]) if params[9] else 0}")
+                logger.info(f"🔍 PostgreSQL: analysis_id={params[0]}, ticker={params[1]}, response_len={len(params[6]) if params[6] else 0}")
             else:
-                # SQLite fallback (simplified)
+                # SQLite version - match the same field structure
                 query = """
                 INSERT OR REPLACE INTO grok_analyses (
-                    ticker, snapshot_date, current_price, market_sentiment, response_text
-                ) VALUES (?, ?, ?, ?, ?)
+                    analysis_id, ticker, dte, analysis_date, underlying_price,
+                    prompt_text, response_text, confidence_score, recommended_strategy
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
+                    analysis_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
                     analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('snapshot_date', datetime.now()),
-                    analysis_data.get('current_price', 0.0),
-                    analysis_data.get('market_sentiment', 'NEUTRAL'),
-                    analysis_data.get('response_text', '')
+                    analysis_data.get('dte', 0),
+                    analysis_data.get('analysis_date', datetime.now()),
+                    analysis_data.get('underlying_price', 0.0),
+                    analysis_data.get('prompt_text', ''),
+                    analysis_data.get('response_text', ''),
+                    analysis_data.get('confidence_score'),
+                    analysis_data.get('recommended_strategy')
                 )
             
             self.execute_query(query, params, fetch=False)
             logger.info(f"✅ Stored Grok analysis: {analysis_data.get('analysis_id')}")
             
-            # Verify the storage worked
-            verification_query = "SELECT COUNT(*) FROM grok_analyses WHERE analysis_id = %s" if self.use_postgresql else "SELECT COUNT(*) FROM grok_analyses WHERE analysis_id = ?"
+            # Verify the storage worked (using correct column names)
+            if self.use_postgresql:
+                verification_query = "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = %s"
+            else:
+                verification_query = "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = ?"
+            
             result = self.execute_query(verification_query, (analysis_data.get('analysis_id'),))
-            logger.info(f"🔍 Verification: {result[0] if result else 'Failed'} record(s) found")
+            if result and result[0].get('count', 0) > 0:
+                logger.info(f"🔍 Verification: Successfully stored analysis {analysis_data.get('analysis_id')}")
+            else:
+                logger.warning(f"⚠️ Verification failed: Analysis {analysis_data.get('analysis_id')} not found after insert")
             return True
             
         except Exception as e:
