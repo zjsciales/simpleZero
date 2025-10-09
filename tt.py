@@ -3438,24 +3438,53 @@ def get_account_positions(account_number=None):
                     })
                     
                     if instrument_type == 'Equity Option':
+                        # For TastyTrade, extract option details from symbol and expires-at
+                        expires_at = position.get('expires-at', '')
+                        
+                        # Parse option details from TastyTrade symbol format
+                        parsed_option = parse_option_symbol(symbol)
+                        
+                        if parsed_option:
+                            option_type = parsed_option['option_type']
+                            strike_price = parsed_option['strike']
+                            expiration_date = parsed_option['expiration_full']
+                            
+                            # Calculate days to expiration from expires-at timestamp
+                            days_to_expiration = 0
+                            if expires_at:
+                                try:
+                                    from datetime import datetime
+                                    exp_datetime = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+                                    today = datetime.now(exp_datetime.tzinfo)
+                                    days_to_expiration = (exp_datetime - today).days
+                                except Exception as e:
+                                    print(f"⚠️ Could not parse expiration date {expires_at}: {e}")
+                        else:
+                            print(f"⚠️ Could not parse option symbol: {symbol}")
+                            option_type = ''
+                            strike_price = 0
+                            expiration_date = ''
+                            days_to_expiration = 0
+                        
                         # DEBUG: Show all options positions, not just SPY
                         options_positions.append({
                             'symbol': symbol,
                             'underlying_symbol': underlying_symbol,
                             'quantity': int(quantity),
                             'average_open_price': float(position.get('average-open-price', 0)),
-                            'mark': float(position.get('mark', 0)),
-                            'mark_value': float(position.get('mark-value', 0)),
+                            'mark': float(position.get('close-price', 0)),  # Use close-price as mark
+                            'mark_value': float(position.get('close-price', 0)) * float(position.get('multiplier', 1)) * int(quantity),
                             'multiplier': int(position.get('multiplier', 1)),
                             'realized_day_gain': float(position.get('realized-day-gain', 0)),
-                            'unrealized_day_gain': float(position.get('unrealized-day-gain', 0)),
+                            'unrealized_day_gain': 0,  # Not directly available in TastyTrade positions
                             'created_at': position.get('created-at', ''),
                             'updated_at': position.get('updated-at', ''),
                             'instrument_type': instrument_type,
-                            'option_type': position.get('option-type', ''),
-                            'strike_price': float(position.get('strike-price', 0)),
-                            'expiration_date': position.get('expiration-date', ''),
-                            'days_to_expiration': position.get('days-to-expiration', 0)
+                            'option_type': option_type,
+                            'strike_price': strike_price,
+                            'expiration_date': expiration_date,
+                            'days_to_expiration': days_to_expiration,
+                            'expires_at': expires_at
                         })
                 
                 # Debug logging
