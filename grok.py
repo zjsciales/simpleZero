@@ -451,6 +451,7 @@ Please be concise and timely - respond quickly with focused, actionable intellig
         return {
             'success': True if trading_analysis else False,
             'trading_analysis': trading_analysis,
+            'prompt_text': prompt,  # Include prompt in return data
             'market_data': market_data,
             'prompt_length': len(prompt),
             'includes_sentiment': include_sentiment and 'Market Sentiment Analysis' in prompt

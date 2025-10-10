@@ -780,31 +780,8 @@ def generate_prompt():
             
             print(f"✅ Generated enhanced prompt with {len(prompt)} characters of comprehensive analysis")
             
-            # 🔴 SAVE PROMPT TO DATABASE (for library/history)
-            try:
-                from unified_database import store_grok_analysis
-                analysis_data = {
-                    'analysis_id': f"prompt_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
-                    'ticker': ticker,
-                    'dte': dte,
-                    'analysis_date': datetime.now(),
-                    'prompt_text': prompt,
-                    'response_text': '',  # No response yet, just the prompt
-                    'underlying_price': float(market_data.get('current_price', 0)) if market_data.get('current_price') else 0.0,
-                    'recommended_strategy': None,
-                    'confidence_score': None,
-                    'market_outlook': None,
-                    'key_levels': None,
-                    'related_trade_id': None
-                }
-                
-                success = store_grok_analysis(analysis_data)
-                if success:
-                    print(f"✅ Saved generated prompt to database: {analysis_data['analysis_id']}")
-                else:
-                    print("⚠️ Failed to save generated prompt to database")
-            except Exception as db_error:
-                print(f"⚠️ Database save error for prompt: {db_error}")
+            # � PROMPT GENERATED - will be saved with response in /api/grok-analysis
+            print(f"✅ Generated prompt ready for analysis (will save with response)")
             
         except Exception as analysis_error:
             print(f"⚠️  Enhanced analysis failed, using fallback: {analysis_error}")
@@ -884,24 +861,17 @@ def grok_analysis():
             try:
                 from unified_database import db_manager
                 
-                # Get market data for current price - handle if market_data is function vs dict
+                # Get market data for current price from analysis result
                 current_price = 0.0
                 try:
-                    if market_data:
-                        if callable(market_data):
-                            # market_data is a function, call it
-                            logger.warning("⚠️ market_data is a function, attempting to call it")
-                            actual_market_data = market_data()
-                        else:
-                            # market_data is already a dict
-                            actual_market_data = market_data
-                        
-                        if actual_market_data and isinstance(actual_market_data, dict):
-                            current_price = float(actual_market_data.get('current_price', 0))
-                        else:
-                            logger.warning(f"⚠️ Unexpected market_data type: {type(actual_market_data)}")
+                    market_data = analysis_result.get('market_data', {})
+                    if market_data and isinstance(market_data, dict):
+                        current_price = float(market_data.get('current_price', 0))
+                        print(f"✅ Extracted current price: ${current_price}")
+                    else:
+                        print(f"⚠️ No market data available for current price")
                 except Exception as price_error:
-                    logger.error(f"❌ Error extracting current price: {price_error}")
+                    print(f"❌ Error extracting current price: {price_error}")
                     current_price = 0.0
                 
                 analysis_id = f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -913,7 +883,7 @@ def grok_analysis():
                     'dte': dte,
                     'analysis_date': datetime.now(),
                     'underlying_price': current_price,
-                    'prompt_text': '',  # Could be added if available
+                    'prompt_text': analysis_result.get('prompt_text', ''),  # Get prompt from analysis result
                     'response_text': trading_analysis,  # This is the Grok response!
                     'confidence_score': None,  # Could parse from response
                     'recommended_strategy': None,  # Could parse from response
