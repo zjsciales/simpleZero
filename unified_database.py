@@ -119,9 +119,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ PostgreSQL table verification failed: {e}")
             # Don't raise - let the app continue
-                
-        except Exception as e:
-            logger.error(f"❌ PostgreSQL schema initialization failed: {e}")
     
     def _init_sqlite_schema(self):
         """Initialize SQLite schema with adapted PostgreSQL schema"""
