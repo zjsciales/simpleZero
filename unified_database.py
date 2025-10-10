@@ -504,40 +504,252 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"❌ Error getting Grok analyses: {e}")
             return []
+
+    def parse_grok_analysis_for_storage(self, analysis_data: Dict, response_text: str = None) -> Dict:
+        """
+        Parse Grok response and enhance analysis_data with trade details
+        
+        Args:
+            analysis_data: Basic analysis data (ticker, dte, etc.)
+            response_text: Grok response text to parse (optional, uses analysis_data['response_text'] if not provided)
+            
+        Returns:
+            Enhanced analysis_data with all parsed trade fields
+        """
+        try:
+            from trader import GrokResponseParser
+            
+            # Get response text
+            if response_text is None:
+                response_text = analysis_data.get('response_text', '')
+            
+            if not response_text:
+                logger.warning("No response text provided for parsing")
+                return analysis_data
+                
+            # Parse the response using existing parser
+            trade_signal = GrokResponseParser.parse_grok_response(response_text)
+            
+            if trade_signal:
+                # Map all the trade details to database fields
+                analysis_data.update({
+                    'confidence_score': trade_signal.confidence,
+                    'recommended_strategy': trade_signal.strategy_type.value if hasattr(trade_signal.strategy_type, 'value') else str(trade_signal.strategy_type),
+                    'market_outlook': trade_signal.market_bias,
+                    'key_levels': f"{trade_signal.support_level} / {trade_signal.resistance_level}" if trade_signal.support_level and trade_signal.resistance_level else None,
+                    'short_strike': trade_signal.short_strike,
+                    'long_strike': trade_signal.long_strike,
+                    'expiration_date': trade_signal.expiration,
+                    'premium': trade_signal.max_profit,
+                    'max_loss': trade_signal.max_loss,
+                    'prob_prof': int(trade_signal.probability_of_profit) if trade_signal.probability_of_profit else None,
+                    'risk_reward': int(trade_signal.reward_risk_ratio * 100) if trade_signal.reward_risk_ratio else None,
+                    'net_delta': int(trade_signal.delta * 100) if trade_signal.delta else None,
+                    'net_theta': int(trade_signal.theta * 100) if trade_signal.theta else None
+                })
+                logger.info(f"✅ Parsed trade details: {analysis_data.get('recommended_strategy')} {analysis_data.get('short_strike')}/{analysis_data.get('long_strike')}")
+            else:
+                logger.warning("Failed to parse trade signal from response")
+                
+        except Exception as e:
+            logger.error(f"❌ Error parsing Grok analysis: {e}")
+            
+        return analysis_data
+
+    def store_grok_trade_suggestion(self, analysis_data: Dict, response_text: str = None) -> bool:
+        """
+        Store Grok analysis as a trade suggestion in the trades table
+        
+        Args:
+            analysis_data: Basic analysis data (ticker, dte, etc.)
+            response_text: Grok response text to parse
+            
+        Returns:
+            Success boolean
+        """
+        try:
+            from trader import GrokResponseParser
+            
+            # Get response text
+            if response_text is None:
+                response_text = analysis_data.get('response_text', '')
+            
+            if not response_text:
+                logger.warning("No response text provided for trade suggestion parsing")
+                return False
+                
+            # Parse the response using existing parser
+            trade_signal = GrokResponseParser.parse_grok_response(response_text)
+            
+            if not trade_signal:
+                logger.warning("Failed to parse trade signal from response")
+                return False
+            
+            # Create trade record with all Grok details
+            trade_record = {
+                'trade_id': f"grok_suggested_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                'ticker': analysis_data.get('ticker', 'SPY'),
+                'strategy_type': trade_signal.strategy_type.value if hasattr(trade_signal.strategy_type, 'value') else str(trade_signal.strategy_type),
+                'dte': analysis_data.get('dte', 0),
+                'entry_date': analysis_data.get('analysis_date', datetime.now()),
+                'expiration_date': trade_signal.expiration,
+                'short_strike': trade_signal.short_strike,
+                'long_strike': trade_signal.long_strike,
+                'quantity': 1,
+                'entry_premium_received': trade_signal.max_profit,  # Use max_profit as premium
+                'entry_underlying_price': analysis_data.get('underlying_price', 0.0),
+                'status': 'SUGGESTED',  # Grok suggestion, not executed
+                'grok_confidence': trade_signal.confidence,
+                'market_conditions': f"{trade_signal.market_bias} - {trade_signal.reasoning[:200]}...",
+                'max_loss': trade_signal.max_loss,
+                'prob_prof': int(trade_signal.probability_of_profit) if trade_signal.probability_of_profit else None,
+                'risk_reward': int(trade_signal.reward_risk_ratio * 100) if trade_signal.reward_risk_ratio else None,
+                'net_delta': int(trade_signal.delta * 100) if trade_signal.delta else None,
+                'net_theta': int(trade_signal.theta * 100) if trade_signal.theta else None,
+                'analysis_id': analysis_data.get('analysis_id'),
+                'prompt_text': analysis_data.get('prompt_text', ''),
+                'response_text': response_text,
+                'created_at': datetime.now()
+            }
+            
+            # Save to trades table
+            success = self.save_trade_to_database_internal(trade_record)
+            
+            if success:
+                logger.info(f"✅ Stored Grok trade suggestion: {trade_record['trade_id']} - {trade_record['strategy_type']} {trade_record['short_strike']}/{trade_record['long_strike']}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"❌ Error storing Grok trade suggestion: {e}")
+            return False
+
+    def save_trade_to_database_internal(self, trade_data: Dict) -> bool:
+        """Internal method to save trade data"""
+        try:
+            if self.use_postgresql:
+                query = """
+                INSERT INTO trades (
+                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                    short_strike, long_strike, quantity, entry_premium_received,
+                    entry_premium_paid, entry_underlying_price, status, grok_confidence,
+                    market_conditions, max_loss, prob_prof, risk_reward, net_delta, net_theta,
+                    analysis_id, prompt_text, response_text, created_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                ) ON CONFLICT (trade_id) DO UPDATE SET
+                    updated_at = CURRENT_TIMESTAMP
+                """
+                params = (
+                    trade_data.get('trade_id'),
+                    trade_data.get('ticker', 'SPY'),
+                    trade_data.get('strategy_type'),
+                    trade_data.get('dte'),
+                    trade_data.get('entry_date'),
+                    trade_data.get('expiration_date'),
+                    trade_data.get('short_strike'),
+                    trade_data.get('long_strike'),
+                    trade_data.get('quantity', 1),
+                    trade_data.get('entry_premium_received'),
+                    trade_data.get('entry_premium_paid'),
+                    trade_data.get('entry_underlying_price'),
+                    trade_data.get('status', 'SUGGESTED'),
+                    trade_data.get('grok_confidence'),
+                    trade_data.get('market_conditions'),
+                    trade_data.get('max_loss'),
+                    trade_data.get('prob_prof'),
+                    trade_data.get('risk_reward'),
+                    trade_data.get('net_delta'),
+                    trade_data.get('net_theta'),
+                    trade_data.get('analysis_id'),
+                    trade_data.get('prompt_text'),
+                    trade_data.get('response_text'),
+                    trade_data.get('created_at', datetime.now())
+                )
+            else:
+                # SQLite simplified for development
+                query = """
+                INSERT OR REPLACE INTO trades (
+                    trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
+                    short_strike, long_strike, quantity, entry_premium_received,
+                    entry_premium_paid, entry_underlying_price, status, grok_confidence,
+                    market_conditions, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                params = (
+                    trade_data.get('trade_id'),
+                    trade_data.get('ticker', 'SPY'),
+                    trade_data.get('strategy_type'),
+                    trade_data.get('dte'),
+                    trade_data.get('entry_date'),
+                    trade_data.get('expiration_date'),
+                    trade_data.get('short_strike'),
+                    trade_data.get('long_strike'),
+                    trade_data.get('quantity', 1),
+                    trade_data.get('entry_premium_received'),
+                    trade_data.get('entry_premium_paid'),
+                    trade_data.get('entry_underlying_price'),
+                    trade_data.get('status', 'SUGGESTED'),
+                    trade_data.get('grok_confidence'),
+                    trade_data.get('market_conditions'),
+                    trade_data.get('created_at', datetime.now())
+                )
+            
+            self.execute_query(query, params, fetch=False)
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save trade: {e}")
+            return False
     
     def store_grok_analysis(self, analysis_data: Dict) -> bool:
-        """Store Grok analysis (unified interface) - Match actual table with ALL columns"""
+        """Store Grok analysis (unified interface) with complete trade parsing"""
         try:
             logger.info(f"💾 Storing Grok analysis: {analysis_data.get('ticker', 'SPY')}")
             
+            # Parse trade details from response if available
+            enhanced_data = self.parse_grok_analysis_for_storage(analysis_data)
+            
             if self.use_postgresql:
-                # Match actual PostgreSQL schema from railway_schema.sql
+                # Full PostgreSQL schema with all new columns
                 query = """
                 INSERT INTO grok_analyses (
                     analysis_id, ticker, dte, analysis_date, underlying_price,
                     prompt_text, response_text, confidence_score,
-                    recommended_strategy, market_outlook, key_levels, related_trade_id
+                    recommended_strategy, market_outlook, key_levels, related_trade_id,
+                    short_strike, long_strike, expiration_date, premium, max_loss,
+                    prob_prof, risk_reward, net_delta, net_theta
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 """
                 params = (
-                    analysis_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
-                    analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('dte', 0),
-                    analysis_data.get('analysis_date', datetime.now()),
-                    analysis_data.get('underlying_price', 0.0),
-                    analysis_data.get('prompt_text', ''),
-                    analysis_data.get('response_text', ''),
-                    analysis_data.get('confidence_score'),
-                    analysis_data.get('recommended_strategy'),
-                    analysis_data.get('market_outlook'),
-                    analysis_data.get('key_levels'),
-                    analysis_data.get('related_trade_id')
+                    enhanced_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
+                    enhanced_data.get('ticker', 'SPY'),
+                    enhanced_data.get('dte', 0),
+                    enhanced_data.get('analysis_date', datetime.now()),
+                    enhanced_data.get('underlying_price', 0.0),
+                    enhanced_data.get('prompt_text', ''),
+                    enhanced_data.get('response_text', ''),
+                    enhanced_data.get('confidence_score'),
+                    enhanced_data.get('recommended_strategy'),
+                    enhanced_data.get('market_outlook'),
+                    enhanced_data.get('key_levels'),
+                    enhanced_data.get('related_trade_id'),
+                    enhanced_data.get('short_strike'),
+                    enhanced_data.get('long_strike'),
+                    enhanced_data.get('expiration_date'),
+                    enhanced_data.get('premium'),
+                    enhanced_data.get('max_loss'),
+                    enhanced_data.get('prob_prof'),
+                    enhanced_data.get('risk_reward'),
+                    enhanced_data.get('net_delta'),
+                    enhanced_data.get('net_theta')
                 )
-                logger.info(f"🔍 PostgreSQL: analysis_id={params[0]}, ticker={params[1]}, response_len={len(params[6]) if params[6] else 0}")
+                logger.info(f"🔍 PostgreSQL: analysis_id={params[0]}, strategy={params[8]}, strikes={params[12]}/{params[13]}")
             else:
-                # SQLite version - match the same field structure
+                # SQLite version - basic columns for development
                 query = """
                 INSERT OR REPLACE INTO grok_analyses (
                     analysis_id, ticker, dte, analysis_date, underlying_price,
@@ -545,31 +757,27 @@ class DatabaseManager:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 params = (
-                    analysis_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
-                    analysis_data.get('ticker', 'SPY'),
-                    analysis_data.get('dte', 0),
-                    analysis_data.get('analysis_date', datetime.now()),
-                    analysis_data.get('underlying_price', 0.0),
-                    analysis_data.get('prompt_text', ''),
-                    analysis_data.get('response_text', ''),
-                    analysis_data.get('confidence_score'),
-                    analysis_data.get('recommended_strategy')
+                    enhanced_data.get('analysis_id', f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"),
+                    enhanced_data.get('ticker', 'SPY'),
+                    enhanced_data.get('dte', 0),
+                    enhanced_data.get('analysis_date', datetime.now()),
+                    enhanced_data.get('underlying_price', 0.0),
+                    enhanced_data.get('prompt_text', ''),
+                    enhanced_data.get('response_text', ''),
+                    enhanced_data.get('confidence_score'),
+                    enhanced_data.get('recommended_strategy')
                 )
             
             self.execute_query(query, params, fetch=False)
-            logger.info(f"✅ Stored Grok analysis: {analysis_data.get('analysis_id')}")
+            logger.info(f"✅ Stored complete Grok analysis: {enhanced_data.get('analysis_id')}")
             
-            # Verify the storage worked (using correct column names)
-            if self.use_postgresql:
-                verification_query = "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = %s"
-            else:
-                verification_query = "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = ?"
-            
-            result = self.execute_query(verification_query, (analysis_data.get('analysis_id'),))
+            # Verify the storage worked
+            verification_query = "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = %s" if self.use_postgresql else "SELECT COUNT(*) as count FROM grok_analyses WHERE analysis_id = ?"
+            result = self.execute_query(verification_query, (enhanced_data.get('analysis_id'),))
             if result and result[0].get('count', 0) > 0:
-                logger.info(f"🔍 Verification: Successfully stored analysis {analysis_data.get('analysis_id')}")
+                logger.info(f"🔍 Verification: Successfully stored analysis {enhanced_data.get('analysis_id')}")
             else:
-                logger.warning(f"⚠️ Verification failed: Analysis {analysis_data.get('analysis_id')} not found after insert")
+                logger.warning(f"⚠️ Verification failed: Analysis {enhanced_data.get('analysis_id')} not found after insert")
             return True
             
         except Exception as e:
@@ -743,7 +951,7 @@ def store_grok_analysis(analysis_data: Dict) -> bool:
     return db_manager.store_grok_analysis(analysis_data)
 
 def save_trade_to_database(trade_data: Dict) -> bool:
-    """Save a trade record to the database"""
+    """Save a trade record to the database with complete Grok analysis data"""
     try:
         if db_manager.use_postgresql:
             query = """
@@ -751,9 +959,10 @@ def save_trade_to_database(trade_data: Dict) -> bool:
                 trade_id, ticker, strategy_type, dte, entry_date, expiration_date,
                 short_strike, long_strike, quantity, entry_premium_received,
                 entry_premium_paid, entry_underlying_price, status, grok_confidence,
-                market_conditions, created_at
+                market_conditions, max_loss, prob_prof, risk_reward, net_delta, net_theta,
+                analysis_id, prompt_text, response_text, created_at
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             ) ON CONFLICT (trade_id) DO UPDATE SET
                 updated_at = CURRENT_TIMESTAMP,
                 current_underlying_price = EXCLUDED.entry_underlying_price
@@ -768,24 +977,53 @@ def save_trade_to_database(trade_data: Dict) -> bool:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         
-        params = (
-            trade_data.get('trade_id'),
-            trade_data.get('ticker', 'SPY'),
-            trade_data.get('strategy_type'),
-            trade_data.get('dte'),
-            trade_data.get('entry_date'),
-            trade_data.get('expiration_date'),
-            trade_data.get('short_strike'),
-            trade_data.get('long_strike'),
-            trade_data.get('quantity', 1),
-            trade_data.get('entry_premium_received'),
-            trade_data.get('entry_premium_paid'),
-            trade_data.get('entry_underlying_price'),
-            trade_data.get('status', 'OPEN'),
-            trade_data.get('grok_confidence'),
-            trade_data.get('market_conditions'),
-            trade_data.get('created_at', datetime.now())
-        )
+        if db_manager.use_postgresql:
+            params = (
+                trade_data.get('trade_id'),
+                trade_data.get('ticker', 'SPY'),
+                trade_data.get('strategy_type'),
+                trade_data.get('dte'),
+                trade_data.get('entry_date'),
+                trade_data.get('expiration_date'),
+                trade_data.get('short_strike'),
+                trade_data.get('long_strike'),
+                trade_data.get('quantity', 1),
+                trade_data.get('entry_premium_received'),
+                trade_data.get('entry_premium_paid'),
+                trade_data.get('entry_underlying_price'),
+                trade_data.get('status', 'SUGGESTED'),  # Default to SUGGESTED for Grok trades
+                trade_data.get('grok_confidence'),
+                trade_data.get('market_conditions'),
+                trade_data.get('max_loss'),
+                trade_data.get('prob_prof'),
+                trade_data.get('risk_reward'),
+                trade_data.get('net_delta'),
+                trade_data.get('net_theta'),
+                trade_data.get('analysis_id'),
+                trade_data.get('prompt_text'),
+                trade_data.get('response_text'),
+                trade_data.get('created_at', datetime.now())
+            )
+        else:
+            # SQLite simplified for development
+            params = (
+                trade_data.get('trade_id'),
+                trade_data.get('ticker', 'SPY'),
+                trade_data.get('strategy_type'),
+                trade_data.get('dte'),
+                trade_data.get('entry_date'),
+                trade_data.get('expiration_date'),
+                trade_data.get('short_strike'),
+                trade_data.get('long_strike'),
+                trade_data.get('quantity', 1),
+                trade_data.get('entry_premium_received'),
+                trade_data.get('entry_premium_paid'),
+                trade_data.get('entry_underlying_price'),
+                trade_data.get('status', 'SUGGESTED'),
+                trade_data.get('grok_confidence'),
+                trade_data.get('market_conditions'),
+                trade_data.get('created_at', datetime.now())
+            )
         
         db_manager.execute_query(query, params, fetch=False)
         logger.info(f"✅ Saved trade to database: {trade_data.get('trade_id')}")

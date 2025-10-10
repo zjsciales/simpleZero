@@ -185,8 +185,20 @@ class GrokResponseParser:
             risk_metrics = trade_data.get('risk_metrics', {})
             entry_conditions = trade_data.get('entry_conditions', {})
             
+            # Handle both put and call spreads dynamically
+            strategy_type = trade_data.get('strategy_type', '')
+            short_strike = 0.0
+            long_strike = 0.0
+            
+            if 'BULL_PUT_SPREAD' in strategy_type:
+                short_strike = trade_setup.get('short_put_strike', 0.0)
+                long_strike = trade_setup.get('long_put_strike', 0.0)
+            elif 'BEAR_CALL_SPREAD' in strategy_type:
+                short_strike = trade_setup.get('short_call_strike', 0.0)
+                long_strike = trade_setup.get('long_call_strike', 0.0)
+            
             return GrokTradeSignal(
-                strategy_type=StrategyType(trade_data.get('strategy_type')),
+                strategy_type=StrategyType(strategy_type),
                 confidence=trade_data.get('confidence', 0),
                 market_bias=trade_data.get('market_bias', ''),
                 support_level=trade_data.get('support_level', 0.0),
@@ -194,8 +206,8 @@ class GrokResponseParser:
                 volatility_factor=trade_data.get('volatility_factor', ''),
                 
                 underlying_symbol=trade_data.get('underlying', 'SPY'),  # Add underlying symbol
-                short_strike=trade_setup.get('short_put_strike', 0.0),
-                long_strike=trade_setup.get('long_put_strike', 0.0),
+                short_strike=short_strike,
+                long_strike=long_strike,
                 credit_received=trade_setup.get('credit_received', 0.0),
                 expiration=trade_setup.get('expiration', ''),
                 max_profit=trade_setup.get('max_profit', 0.0),

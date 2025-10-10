@@ -857,7 +857,7 @@ def grok_analysis():
         if trading_analysis:
             print(f"✅ Integrated Grok analysis completed")
             
-            # 🔴 SAVE ANALYSIS TO DATABASE
+            # 🔴 SAVE ANALYSIS TO DATABASE AND STORE AS TRADE SUGGESTION
             try:
                 from unified_database import db_manager
                 
@@ -876,7 +876,7 @@ def grok_analysis():
                 
                 analysis_id = f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
-                # Prepare analysis data with correct field names for our fixed schema
+                # Prepare analysis data for both grok_analyses and trades
                 analysis_data = {
                     'analysis_id': analysis_id,
                     'ticker': ticker,
@@ -885,10 +885,10 @@ def grok_analysis():
                     'underlying_price': current_price,
                     'prompt_text': analysis_result.get('prompt_text', ''),  # Get prompt from analysis result
                     'response_text': trading_analysis,  # This is the Grok response!
-                    'confidence_score': None,  # Could parse from response
-                    'recommended_strategy': None,  # Could parse from response
-                    'market_outlook': None,  # Could parse from response
-                    'key_levels': None,  # Could parse from response
+                    'confidence_score': None,  # Will be parsed
+                    'recommended_strategy': None,  # Will be parsed
+                    'market_outlook': None,  # Will be parsed
+                    'key_levels': None,  # Will be parsed
                     'related_trade_id': None
                 }
                 
@@ -898,15 +898,24 @@ def grok_analysis():
                 except:
                     pass  # Ignore reset errors
                 
-                success = db_manager.store_grok_analysis(analysis_data)
-                if success:
+                # Store in grok_analyses table for historical record
+                success_analysis = db_manager.store_grok_analysis(analysis_data)
+                if success_analysis:
                     print(f"✅ Saved Grok analysis to database: {analysis_id}")
                 else:
                     print("⚠️ Failed to save Grok analysis to database")
+                
+                # Store as trade suggestion in trades table with complete parsing
+                success_trade = db_manager.store_grok_trade_suggestion(analysis_data, trading_analysis)
+                if success_trade:
+                    print(f"✅ Saved Grok trade suggestion to trades table")
+                else:
+                    print("⚠️ Failed to save Grok trade suggestion")
+                    
             except Exception as db_error:
                 print(f"⚠️ Database save error: {db_error}")
             
-            # Process and store the Grok response
+            # Process and store the Grok response (for additional processing if needed)
             from trader_integration import process_grok_response
             user_session_id = session.get('session_id') or session.get('user_session_id')
             
@@ -916,48 +925,6 @@ def grok_analysis():
                 dte=dte,
                 session_id=user_session_id
             )
-            
-            # 🔴 SAVE PARSED TRADE TO DATABASE IF AVAILABLE
-            if processing_result.get('success') and processing_result.get('parsed_trade'):
-                try:
-                    from unified_database import save_trade_to_database
-                    trade_data = processing_result['parsed_trade']
-                    
-                    # Create trade record for database
-                    trade_record = {
-                        'trade_id': f"grok_parsed_{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}",
-                        'ticker': ticker,
-                        'strategy_type': trade_data.get('strategy', 'Parsed from Grok'),
-                        'dte': dte,
-                        'entry_date': datetime.now(),
-                        'expiration_date': trade_data.get('expiration_date'),
-                        'short_strike': trade_data.get('short_strike', 0),
-                        'long_strike': trade_data.get('long_strike', 0),
-                        'quantity': 1,
-                        'entry_premium_received': trade_data.get('credit_received', 0),
-                        'entry_underlying_price': trade_data.get('underlying_price', 0),
-                        'status': 'PARSED',  # Not executed, just parsed
-                        'grok_confidence': trade_data.get('confidence', 0),
-                        'market_conditions': trade_data.get('rationale', ''),
-                        'source': 'grok_parsed'
-                    }
-                    
-                    success = save_trade_to_database(trade_record)
-                    if success:
-                        print(f"✅ Saved parsed trade to database: {trade_record['trade_id']}")
-                        
-                        # 🔴 UPDATE PERFORMANCE METRICS AFTER TRADE SAVE
-                        try:
-                            from unified_database import update_performance_metrics
-                            metrics_updated = update_performance_metrics()
-                            if metrics_updated:
-                                print("✅ Performance metrics updated after trade save")
-                        except Exception as metrics_error:
-                            print(f"⚠️ Performance metrics update error: {metrics_error}")
-                    else:
-                        print("⚠️ Failed to save parsed trade to database")
-                except Exception as db_error:
-                    print(f"⚠️ Trade save error: {db_error}")
             
             return jsonify({
                 'success': True,
