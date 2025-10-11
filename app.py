@@ -1730,6 +1730,199 @@ def dte_discovery():
             'message': f'Error in DTE discovery: {e}'
         })
 
+@app.route('/api/grok-history')
+def get_grok_history():
+    """Get Grok analysis history with linked trade suggestions"""
+    try:
+        from unified_database import db_manager
+        
+        # Get recent Grok analyses with their linked trades
+        query = """
+        SELECT 
+            ga.analysis_id,
+            ga.ticker,
+            ga.dte,
+            ga.analysis_date,
+            ga.underlying_price,
+            ga.confidence_score,
+            ga.recommended_strategy,
+            ga.market_outlook,
+            ga.created_at,
+            -- Trade details if available
+            t.trade_id,
+            t.strategy_type,
+            t.short_strike,
+            t.long_strike,
+            t.entry_premium_received,
+            t.status,
+            t.grok_confidence,
+            t.max_loss,
+            t.prob_prof,
+            t.risk_reward
+        FROM grok_analyses ga
+        LEFT JOIN trades t ON ga.analysis_id = t.analysis_id
+        ORDER BY ga.created_at DESC
+        LIMIT 50
+        """
+        
+        results = db_manager.execute_query(query)
+        
+        if not results:
+            return jsonify({"analyses": [], "message": "No Grok analyses found"})
+        
+        # Format the results for the frontend
+        formatted_analyses = []
+        for row in results:
+            analysis = {
+                "analysis_id": row.get('analysis_id'),
+                "ticker": row.get('ticker'),
+                "dte": row.get('dte'),
+                "analysis_date": row.get('analysis_date').isoformat() if row.get('analysis_date') else None,
+                "underlying_price": float(row.get('underlying_price', 0)),
+                "confidence_score": row.get('confidence_score'),
+                "recommended_strategy": row.get('recommended_strategy'),
+                "market_outlook": row.get('market_outlook'),
+                "created_at": row.get('created_at').isoformat() if row.get('created_at') else None,
+                "has_trade": bool(row.get('trade_id')),
+                "trade_details": None
+            }
+            
+            # Add trade details if available
+            if row.get('trade_id'):
+                analysis["trade_details"] = {
+                    "trade_id": row.get('trade_id'),
+                    "strategy_type": row.get('strategy_type'),
+                    "short_strike": float(row.get('short_strike', 0)),
+                    "long_strike": float(row.get('long_strike', 0)),
+                    "entry_premium_received": float(row.get('entry_premium_received', 0)),
+                    "status": row.get('status'),
+                    "grok_confidence": row.get('grok_confidence'),
+                    "max_loss": row.get('max_loss'),
+                    "prob_prof": row.get('prob_prof'),
+                    "risk_reward": row.get('risk_reward')
+                }
+            
+            formatted_analyses.append(analysis)
+        
+        return jsonify({
+            "analyses": formatted_analyses,
+            "total_count": len(formatted_analyses),
+            "message": f"Found {len(formatted_analyses)} Grok analyses"
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching Grok history: {e}")
+        return jsonify({"error": "Failed to fetch Grok history", "details": str(e)}), 500
+
+@app.route('/api/grok-analysis/<analysis_id>')
+def get_grok_analysis_detail(analysis_id):
+    """Get complete details for a specific Grok analysis including full prompt and response"""
+    try:
+        from unified_database import db_manager
+        
+        # Get the complete analysis details
+        query = """
+        SELECT 
+            ga.*,
+            t.trade_id,
+            t.strategy_type,
+            t.short_strike,
+            t.long_strike,
+            t.quantity,
+            t.entry_premium_received,
+            t.entry_premium_paid,
+            t.entry_underlying_price,
+            t.status,
+            t.grok_confidence,
+            t.market_conditions,
+            t.max_loss,
+            t.prob_prof,
+            t.risk_reward,
+            t.net_delta,
+            t.net_theta,
+            t.created_at as trade_created_at
+        FROM grok_analyses ga
+        LEFT JOIN trades t ON ga.analysis_id = t.analysis_id
+        WHERE ga.analysis_id = %s
+        """ if db_manager.use_postgresql else """
+        SELECT 
+            ga.*,
+            t.trade_id,
+            t.strategy_type,
+            t.short_strike,
+            t.long_strike,
+            t.quantity,
+            t.entry_premium_received,
+            t.entry_premium_paid,
+            t.entry_underlying_price,
+            t.status,
+            t.grok_confidence,
+            t.market_conditions,
+            t.max_loss,
+            t.prob_prof,
+            t.risk_reward,
+            t.net_delta,
+            t.net_theta,
+            t.created_at as trade_created_at
+        FROM grok_analyses ga
+        LEFT JOIN trades t ON ga.analysis_id = t.analysis_id
+        WHERE ga.analysis_id = ?
+        """
+        
+        results = db_manager.execute_query(query, (analysis_id,))
+        
+        if not results:
+            return jsonify({"error": "Analysis not found"}), 404
+        
+        row = results[0]
+        
+        # Format the complete analysis details
+        analysis_detail = {
+            "analysis_id": row.get('analysis_id'),
+            "ticker": row.get('ticker'),
+            "dte": row.get('dte'),
+            "analysis_date": row.get('analysis_date').isoformat() if row.get('analysis_date') else None,
+            "underlying_price": float(row.get('underlying_price', 0)),
+            "prompt_text": row.get('prompt_text'),
+            "response_text": row.get('response_text'),
+            "confidence_score": row.get('confidence_score'),
+            "recommended_strategy": row.get('recommended_strategy'),
+            "market_outlook": row.get('market_outlook'),
+            "key_levels": row.get('key_levels'),
+            "related_trade_id": row.get('related_trade_id'),
+            "created_at": row.get('created_at').isoformat() if row.get('created_at') else None,
+            "has_trade": bool(row.get('trade_id')),
+            "trade_details": None
+        }
+        
+        # Add complete trade details if available
+        if row.get('trade_id'):
+            analysis_detail["trade_details"] = {
+                "trade_id": row.get('trade_id'),
+                "strategy_type": row.get('strategy_type'),
+                "short_strike": float(row.get('short_strike', 0)),
+                "long_strike": float(row.get('long_strike', 0)),
+                "quantity": row.get('quantity'),
+                "entry_premium_received": float(row.get('entry_premium_received', 0)) if row.get('entry_premium_received') else None,
+                "entry_premium_paid": float(row.get('entry_premium_paid', 0)) if row.get('entry_premium_paid') else None,
+                "entry_underlying_price": float(row.get('entry_underlying_price', 0)),
+                "status": row.get('status'),
+                "grok_confidence": row.get('grok_confidence'),
+                "market_conditions": row.get('market_conditions'),
+                "max_loss": row.get('max_loss'),
+                "prob_prof": row.get('prob_prof'),
+                "risk_reward": row.get('risk_reward'),
+                "net_delta": row.get('net_delta'),
+                "net_theta": row.get('net_theta'),
+                "trade_created_at": row.get('trade_created_at').isoformat() if row.get('trade_created_at') else None
+            }
+        
+        return jsonify(analysis_detail)
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching analysis detail for {analysis_id}: {e}")
+        return jsonify({"error": "Failed to fetch analysis details", "details": str(e)}), 500
+
 if __name__ == '__main__':
     # Initialize automated trading system (optional)
     try:

@@ -257,6 +257,64 @@
             color: #6c757d;
         }
 
+        /* Trade Badge and Info */
+        .trade-badge {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #28a745;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+
+        .analysis-card.has-trade {
+            position: relative;
+            border-left: 4px solid #28a745;
+        }
+
+        .trade-info {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 15px 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            font-size: 0.85rem;
+        }
+
+        .trade-strikes {
+            font-weight: 700;
+            color: #333;
+        }
+
+        .trade-premium {
+            color: #28a745;
+            font-weight: 600;
+        }
+
+        .trade-status {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            text-align: right;
+        }
+
+        .status-suggested {
+            color: #007bff;
+        }
+
+        .status-open {
+            color: #ffc107;
+        }
+
+        .status-closed {
+            color: #6c757d;
+        }
+
         /* Featured Badge */
         .featured-badge {
             position: absolute;
@@ -401,6 +459,79 @@
             white-space: pre-wrap;
             line-height: 1.7;
             font-size: 1rem;
+        }
+
+        /* Modal Content Sections */
+        .analysis-meta-section {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .analysis-meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            font-size: 0.9rem;
+        }
+
+        .trade-details-section {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #e8f5e8;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+
+        .trade-details-section h4 {
+            margin-bottom: 15px;
+            color: #28a745;
+        }
+
+        .trade-details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            font-size: 0.9rem;
+        }
+
+        .prompt-section, .response-section {
+            margin-bottom: 25px;
+        }
+
+        .prompt-section h4, .response-section h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .prompt-text, .response-text {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            font-size: 0.95rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .prompt-text {
+            background: #f8f9ff;
+            border-left: 4px solid #667eea;
+        }
+
+        .response-text {
+            background: #fffef8;
+            border-left: 4px solid #ffc107;
+        }
+
+        .error-state {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
         }
 
         /* Mobile Responsive */
@@ -604,32 +735,33 @@
 
         async function loadAnalysisLibrary(page = 1) {
             try {
-                console.log(`🔄 Loading analysis library page ${page}...`);
+                console.log(`🔄 Loading Grok analysis library page ${page}...`);
                 
-                const response = await fetch(`/api/public/analysis-library?page=${page}&per_page=20`);
+                const response = await fetch(`/api/grok-history`);
                 const data = await response.json();
                 
-                if (data.success) {
+                if (data.analyses) {
                     allAnalyses = data.analyses;
                     filteredAnalyses = [...allAnalyses];
-                    currentPage = data.page;
-                    totalPages = Math.ceil(data.total / data.per_page);
+                    currentPage = 1;
+                    totalPages = Math.ceil(data.analyses.length / 20);
                     
                     renderAnalyses(filteredAnalyses);
                     renderPagination();
-                    updateResultsInfo(data.total);
+                    updateResultsInfo(data.analyses.length);
                     
-                    console.log('✅ Analysis library loaded successfully');
+                    console.log('✅ Grok analysis library loaded successfully');
                 } else {
-                    throw new Error(data.error || 'Failed to load analysis library');
+                    throw new Error(data.error || 'Failed to load Grok analysis library');
                 }
                 
             } catch (error) {
-                console.error('❌ Error loading analysis library:', error);
+                console.error('❌ Error loading Grok analysis library:', error);
                 document.getElementById('analyses-container').innerHTML = `
                     <div class="empty-state">
                         <h3>📚 Library Unavailable</h3>
-                        <p>Unable to load analysis library at the moment. Please try again later.</p>
+                        <p>Unable to load Grok analysis library at the moment. Please try again later.</p>
+                        <p style="font-size: 0.9rem; color: #6c757d;">Error: ${error.message}</p>
                     </div>
                 `;
             }
@@ -659,15 +791,32 @@
             const confidenceText = confidence >= 80 ? 'High' : 
                                   confidence >= 60 ? 'Medium' : 'Low';
             
-            const featuredClass = analysis.is_featured ? 'featured' : '';
-            const featuredBadge = analysis.is_featured ? '<div class="featured-badge">⭐ Featured</div>' : '';
+            // Check if there's a linked trade
+            const hasTradeClass = analysis.has_trade ? 'has-trade' : '';
+            const tradeBadge = analysis.has_trade ? '<div class="trade-badge">💼 Trade Suggestion</div>' : '';
             
-            const preview = truncateText(analysis.response_text || '', 200);
-            const title = analysis.public_title || `${analysis.ticker} ${analysis.dte}DTE Analysis`;
+            // Get strategy from trade details or recommended strategy
+            const strategy = analysis.trade_details?.strategy_type || analysis.recommended_strategy || 'Analysis';
+            
+            // Create trade info if available
+            let tradeInfo = '';
+            if (analysis.trade_details) {
+                const trade = analysis.trade_details;
+                tradeInfo = `
+                    <div class="trade-info">
+                        <div class="trade-strikes">${trade.short_strike}/${trade.long_strike}</div>
+                        <div class="trade-premium">Premium: $${trade.entry_premium_received || 0}</div>
+                        <div class="trade-status status-${trade.status?.toLowerCase()}">${trade.status}</div>
+                    </div>
+                `;
+            }
+            
+            const preview = analysis.market_outlook || 'Grok analysis available - click to view details';
+            const title = `${analysis.ticker} ${analysis.dte}DTE - ${strategy}`;
             
             return `
-                <div class="analysis-card ${featuredClass}" onclick="openAnalysisModal('${analysis.analysis_id}')">
-                    ${featuredBadge}
+                <div class="analysis-card ${hasTradeClass}" onclick="openAnalysisModal('${analysis.analysis_id}')">
+                    ${tradeBadge}
                     <div class="analysis-header">
                         <div class="analysis-meta">
                             <div class="analysis-title">${title}</div>
@@ -683,13 +832,12 @@
                         </div>
                     </div>
                     
-                    <div class="analysis-preview">${preview}</div>
+                    <div class="analysis-preview">${truncateText(preview, 150)}</div>
+                    
+                    ${tradeInfo}
                     
                     <div class="analysis-footer">
-                        ${analysis.recommended_strategy ? 
-                            `<span class="strategy-tag">${analysis.recommended_strategy}</span>` : 
-                            '<span></span>'
-                        }
+                        <span class="strategy-tag">${strategy}</span>
                         <span class="analysis-date">${formatDate(analysis.analysis_date)}</span>
                     </div>
                 </div>
@@ -803,31 +951,82 @@
         }
 
         // Modal functions
-        function openAnalysisModal(analysisId) {
-            const analysis = allAnalyses.find(a => a.analysis_id === analysisId) || 
-                            filteredAnalyses.find(a => a.analysis_id === analysisId);
-            
-            if (!analysis) return;
-            
-            const title = analysis.public_title || `${analysis.ticker} ${analysis.dte}DTE Analysis`;
-            const confidence = analysis.confidence_score || 0;
-            
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-body-content').innerHTML = `
-                <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; font-size: 0.9rem;">
-                        <div><strong>Ticker:</strong> ${analysis.ticker}</div>
-                        <div><strong>DTE:</strong> ${analysis.dte}</div>
-                        <div><strong>Date:</strong> ${formatDateTime(analysis.analysis_date)}</div>
-                        <div><strong>Confidence:</strong> ${confidence}%</div>
-                        ${analysis.recommended_strategy ? `<div><strong>Strategy:</strong> ${analysis.recommended_strategy}</div>` : ''}
-                        <div><strong>Price:</strong> $${analysis.underlying_price}</div>
+        async function openAnalysisModal(analysisId) {
+            try {
+                // Show loading state
+                document.getElementById('modal-title').textContent = 'Loading...';
+                document.getElementById('modal-body-content').innerHTML = '<div class="loading"><div class="spinner"></div>Loading analysis details...</div>';
+                document.getElementById('analysis-modal').style.display = 'block';
+                
+                // Fetch detailed analysis data
+                const response = await fetch(`/api/grok-analysis/${analysisId}`);
+                const analysis = await response.json();
+                
+                if (analysis.error) {
+                    throw new Error(analysis.error);
+                }
+                
+                const title = `${analysis.ticker} ${analysis.dte}DTE - ${analysis.recommended_strategy || 'Grok Analysis'}`;
+                const confidence = analysis.confidence_score || 0;
+                
+                // Create trade details section if available
+                let tradeDetailsHTML = '';
+                if (analysis.trade_details) {
+                    const trade = analysis.trade_details;
+                    tradeDetailsHTML = `
+                        <div class="trade-details-section">
+                            <h4>💼 Trade Suggestion</h4>
+                            <div class="trade-details-grid">
+                                <div><strong>Strategy:</strong> ${trade.strategy_type}</div>
+                                <div><strong>Strikes:</strong> ${trade.short_strike}/${trade.long_strike}</div>
+                                <div><strong>Premium:</strong> $${trade.entry_premium_received || 0}</div>
+                                <div><strong>Status:</strong> <span class="status-${trade.status?.toLowerCase()}">${trade.status}</span></div>
+                                <div><strong>Max Loss:</strong> $${trade.max_loss || 'N/A'}</div>
+                                <div><strong>Prob. Profit:</strong> ${trade.prob_prof || 0}%</div>
+                                <div><strong>Risk/Reward:</strong> ${trade.risk_reward || 'N/A'}</div>
+                                <div><strong>Net Delta:</strong> ${trade.net_delta || 'N/A'}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('modal-title').textContent = title;
+                document.getElementById('modal-body-content').innerHTML = `
+                    <div class="analysis-meta-section">
+                        <div class="analysis-meta-grid">
+                            <div><strong>Ticker:</strong> ${analysis.ticker}</div>
+                            <div><strong>DTE:</strong> ${analysis.dte}</div>
+                            <div><strong>Date:</strong> ${formatDateTime(analysis.analysis_date)}</div>
+                            <div><strong>Confidence:</strong> ${confidence}%</div>
+                            <div><strong>Underlying Price:</strong> $${analysis.underlying_price}</div>
+                            <div><strong>Market Outlook:</strong> ${analysis.market_outlook || 'N/A'}</div>
+                        </div>
                     </div>
-                </div>
-                <div class="modal-analysis-text">${analysis.response_text}</div>
-            `;
-            
-            document.getElementById('analysis-modal').style.display = 'block';
+                    
+                    ${tradeDetailsHTML}
+                    
+                    <div class="prompt-section">
+                        <h4>📝 Analysis Prompt</h4>
+                        <div class="prompt-text">${analysis.prompt_text || 'No prompt available'}</div>
+                    </div>
+                    
+                    <div class="response-section">
+                        <h4>🤖 Grok Response</h4>
+                        <div class="response-text">${analysis.response_text || 'No response available'}</div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('❌ Error loading analysis details:', error);
+                document.getElementById('modal-title').textContent = 'Error';
+                document.getElementById('modal-body-content').innerHTML = `
+                    <div class="error-state">
+                        <h3>❌ Failed to Load Analysis</h3>
+                        <p>Unable to load analysis details. Please try again later.</p>
+                        <p style="font-size: 0.9rem; color: #6c757d;">Error: ${error.message}</p>
+                    </div>
+                `;
+            }
         }
 
         function closeModal() {
