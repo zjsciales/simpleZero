@@ -876,21 +876,79 @@ def grok_analysis():
                 
                 analysis_id = f"grok_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                 
-                # Prepare analysis data for both grok_analyses and trades
-                analysis_data = {
-                    'analysis_id': analysis_id,
-                    'ticker': ticker,
-                    'dte': dte,
-                    'analysis_date': datetime.now(),
-                    'underlying_price': current_price,
-                    'prompt_text': analysis_result.get('prompt_text', ''),  # Get prompt from analysis result
-                    'response_text': trading_analysis,  # This is the Grok response!
-                    'confidence_score': None,  # Will be parsed
-                    'recommended_strategy': None,  # Will be parsed
-                    'market_outlook': None,  # Will be parsed
-                    'key_levels': None,  # Will be parsed
-                    'related_trade_id': None
-                }
+                # Parse Grok response for additional fields
+                try:
+                    import json
+                    import re
+                    
+                    def parse_grok_response_fields(response_text):
+                        """Extract key fields from Grok JSON response"""
+                        fields = {
+                            'recommended_strategy': None,
+                            'market_outlook': None,
+                            'key_levels': None,
+                            'confidence_score': None
+                        }
+                        
+                        try:
+                            # Find JSON block in response
+                            json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                            if json_match:
+                                json_data = json.loads(json_match.group(1))
+                                
+                                # Extract fields
+                                fields['recommended_strategy'] = json_data.get('strategy_type', '').replace('_', ' ').title()
+                                fields['market_outlook'] = json_data.get('market_bias', '')
+                                fields['confidence_score'] = json_data.get('confidence', 0)
+                                
+                                # Extract key levels from trade setup
+                                trade_setup = json_data.get('trade_setup', {})
+                                if trade_setup:
+                                    short_strike = trade_setup.get('short_put_strike') or trade_setup.get('short_call_strike')
+                                    long_strike = trade_setup.get('long_put_strike') or trade_setup.get('long_call_strike')
+                                    if short_strike and long_strike:
+                                        fields['key_levels'] = f"{short_strike}/{long_strike}"
+                                        
+                        except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                            logger.warning(f"⚠️ Could not parse Grok response fields: {e}")
+                        
+                        return fields
+                    
+                    # Parse the response
+                    parsed_fields = parse_grok_response_fields(trading_analysis)
+                    
+                    analysis_data = {
+                        'analysis_id': analysis_id,
+                        'ticker': ticker,
+                        'dte': dte,
+                        'analysis_date': datetime.now(),
+                        'underlying_price': current_price,
+                        'prompt_text': analysis_result.get('prompt_text', ''),  # Get prompt from analysis result
+                        'response_text': trading_analysis,  # This is the Grok response!
+                        'confidence_score': parsed_fields['confidence_score'],
+                        'recommended_strategy': parsed_fields['recommended_strategy'],
+                        'market_outlook': parsed_fields['market_outlook'],
+                        'key_levels': parsed_fields['key_levels'],
+                        'related_trade_id': None
+                    }
+                    
+                except Exception as parse_error:
+                    logger.warning(f"⚠️ Failed to parse Grok response fields: {parse_error}")
+                    # Fallback to basic data structure
+                    analysis_data = {
+                        'analysis_id': analysis_id,
+                        'ticker': ticker,
+                        'dte': dte,
+                        'analysis_date': datetime.now(),
+                        'underlying_price': current_price,
+                        'prompt_text': analysis_result.get('prompt_text', ''),  # Get prompt from analysis result
+                        'response_text': trading_analysis,  # This is the Grok response!
+                        'confidence_score': None,  # Will be parsed
+                        'recommended_strategy': None,  # Will be parsed
+                        'market_outlook': None,  # Will be parsed
+                        'key_levels': None,  # Will be parsed
+                        'related_trade_id': None
+                    }
                 
                 # Reset database connection first (due to transaction errors)
                 try:

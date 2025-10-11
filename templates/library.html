@@ -151,8 +151,10 @@
 
         .analyses-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 25px;
+            max-width: 1400px;
+            margin: 0 auto;
         }
 
         /* Analysis Card */
@@ -257,23 +259,7 @@
             color: #6c757d;
         }
 
-        /* Trade Badge and Info */
-        .trade-badge {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: #28a745;
-            color: white;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 700;
-        }
-
-        .analysis-card.has-trade {
-            position: relative;
-            border-left: 4px solid #28a745;
-        }
+        /* Trade Info */
 
         .trade-info {
             background: #f8f9fa;
@@ -296,23 +282,42 @@
             font-weight: 600;
         }
 
-        .trade-status {
+        .max-loss {
+            color: #dc3545;
             font-weight: 600;
-            text-transform: uppercase;
-            font-size: 0.75rem;
+        }
+
+        .confidence-label {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-bottom: 5px;
+        }
+
+        .analysis-confidence {
             text-align: right;
         }
 
+        .status-tag {
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
         .status-suggested {
-            color: #007bff;
+            background: #e3f2fd;
+            color: #1976d2;
         }
 
         .status-open {
-            color: #ffc107;
+            background: #fff3cd;
+            color: #856404;
         }
 
         .status-closed {
-            color: #6c757d;
+            background: #f8d7da;
+            color: #721c24;
         }
 
         /* Featured Badge */
@@ -793,20 +798,30 @@
             
             // Check if there's a linked trade
             const hasTradeClass = analysis.has_trade ? 'has-trade' : '';
-            const tradeBadge = analysis.has_trade ? '<div class="trade-badge">💼 Trade Suggestion</div>' : '';
+            
+            // Convert strategy names to readable format
+            function formatStrategy(strategyType) {
+                if (!strategyType) return 'Analysis';
+                return strategyType.replace('BULL_PUT_SPREAD', 'Put Spread')
+                                  .replace('BEAR_CALL_SPREAD', 'Call Spread')
+                                  .replace('_', ' ');
+            }
             
             // Get strategy from trade details or recommended strategy
-            const strategy = analysis.trade_details?.strategy_type || analysis.recommended_strategy || 'Analysis';
+            const strategy = formatStrategy(analysis.trade_details?.strategy_type || analysis.recommended_strategy);
             
             // Create trade info if available
             let tradeInfo = '';
             if (analysis.trade_details) {
                 const trade = analysis.trade_details;
+                const maxLoss = trade.max_loss ? `$${trade.max_loss}` : 'N/A';
+                const status = trade.status || 'UNKNOWN';
+                
                 tradeInfo = `
                     <div class="trade-info">
                         <div class="trade-strikes">${trade.short_strike}/${trade.long_strike}</div>
                         <div class="trade-premium">Premium: $${trade.entry_premium_received || 0}</div>
-                        <div class="trade-status status-${trade.status?.toLowerCase()}">${trade.status}</div>
+                        <div class="max-loss">Max Loss: ${maxLoss}</div>
                     </div>
                 `;
             }
@@ -814,9 +829,13 @@
             const preview = analysis.market_outlook || 'Grok analysis available - click to view details';
             const title = `${analysis.ticker} ${analysis.dte}DTE - ${strategy}`;
             
+            // Status for footer (only if we have trade details)
+            const statusTag = analysis.trade_details ? 
+                `<span class="status-tag status-${analysis.trade_details.status?.toLowerCase()}">${analysis.trade_details.status}</span>` :
+                '<span></span>';
+            
             return `
                 <div class="analysis-card ${hasTradeClass}" onclick="openAnalysisModal('${analysis.analysis_id}')">
-                    ${tradeBadge}
                     <div class="analysis-header">
                         <div class="analysis-meta">
                             <div class="analysis-title">${title}</div>
@@ -826,6 +845,7 @@
                             </div>
                         </div>
                         <div class="analysis-confidence">
+                            <div class="confidence-label">Confidence:</div>
                             <span class="confidence-badge ${confidenceClass}">
                                 ${confidence}% ${confidenceText}
                             </span>
@@ -838,7 +858,7 @@
                     
                     <div class="analysis-footer">
                         <span class="strategy-tag">${strategy}</span>
-                        <span class="analysis-date">${formatDate(analysis.analysis_date)}</span>
+                        ${statusTag}
                     </div>
                 </div>
             `;
