@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 SimpleZero - AI Options Analysis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 20px;
+        }
+
+        .nav-link {
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            color: rgba(255, 255, 255, 0.8);
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .nav-link:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .hero-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px 30px;
+            margin: 20px 30px;
+            border-radius: 8px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+        }
+
+        .hero-title {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .hero-subtitle {
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 0;
+        }
+
+        .main-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px;
+        }
+
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            border: 1px solid #e9ecef;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f8f9fa;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+            display: flex;
+            align-items: center;
+        }
+
+        .section-icon {
+            margin-right: 10px;
+        }
+
+        .request-form {
+            border-left: 4px solid #3498db;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            font-size: 12px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+            display: block;
+            font-weight: 600;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 16px;
+            background: white;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        .form-description {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1fr;
+            gap: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: #3498db;
+            border: 1px solid #3498db;
+        }
+
+        .btn-outline:hover {
+            background: #3498db;
+            color: white;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            border: 1px solid transparent;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+
+        .alert ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .d-none {
+            display: none !important;
+        }
+
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid transparent;
+            border-top: 2px solid currentColor;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .analyses-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .analysis-card {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .analysis-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            border-color: #3498db;
+        }
+
+        .analysis-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .analysis-ticker {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .analysis-dte {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .analysis-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .meta-item {
+            text-align: center;
+        }
+
+        .meta-label {
+            font-size: 10px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .meta-value {
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-top: 2px;
+        }
+
+        .strategy-highlight {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .strategy-label {
+            font-size: 10px;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .strategy-text {
+            font-size: 14px;
+            color: #2c3e50;
+            line-height: 1.4;
+        }
+
+        .analysis-date {
+            font-size: 12px;
+            color: #6c757d;
+            text-align: center;
+        }
+
+        .no-analyses {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .info-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .info-card h4 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+        }
+
+        .info-card h4 .icon {
+            margin-right: 8px;
+        }
+
+        .info-card ol,
+        .info-card ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .info-card li {
+            margin-bottom: 8px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 768px) {
+            .form-row {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+            
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .main-content {
+                padding: 20px;
+            }
+            
+            .header {
+                padding: 15px 20px;
+            }
+            
+            .hero-section {
+                margin: 15px 20px;
+                padding: 20px;
+            }
+        }
+
+        /* Request Log Styles */
+        .request-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .request-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .request-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .request-ticker {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .request-dte {
+            background: #e9ecef;
+            color: #6c757d;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .request-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: #6c757d;
+        }
+
+        .request-id {
+            font-family: monospace;
+            background: #e9ecef;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .request-date {
+            font-style: italic;
+        }
+
+        .pending-status {
+            color: #856404;
+            background: #fff3cd;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .completed-status {
+            color: #155724;
+            background: #d4edda;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .empty-requests {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">🎯 SimpleZero AI</div>
+            <div class="nav-links">
+                <a href="/" class="nav-link">🏠 Home</a>
+                <a href="/library" class="nav-link">📚 Library</a>
+                <a href="/dashboard" class="nav-link">📊 Dashboard</a>
+            </div>
+        </div>
+        
+        <div class="hero-section">
+            <div class="hero-title">AI Options Analysis</div>
+            <div class="hero-subtitle">
+                Get instant AI-powered analysis for SPY options trades with market outlook, 
+                strategy recommendations, and risk assessment.
+            </div>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- Information Section - Moved to top -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">
+                    <span class="section-icon">ℹ️</span>
+                    How It Works & Important Notes
+                </div>
+            </div>
+            
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4><span class="icon">📋</span>How It Works</h4>
+                    <ol>
+                        <li><strong>Submit Request:</strong> Choose your ticker and DTE</li>
+                        <li><strong>Duplicate Check:</strong> We prevent duplicate requests within 2 hours</li>
+                        <li><strong>Analysis Queue:</strong> Your request joins our processing queue</li>
+                        <li><strong>AI Analysis:</strong> Our system generates comprehensive market analysis</li>
+                        <li><strong>Results:</strong> Analysis becomes available in our public library</li>
+                    </ol>
+                </div>
+                
+                <div class="info-card">
+                    <h4><span class="icon">⚠️</span>Important Notes</h4>
+                    <ul>
+                        <li><strong>No Duplicates:</strong> One request per ticker/DTE combination every 2 hours</li>
+                        <li><strong>SPY Focus:</strong> SPY analyses are most comprehensive and reliable</li>
+                        <li><strong>Processing Time:</strong> Analysis may take a few minutes to complete</li>
+                        <li><strong>Educational Only:</strong> This is for educational purposes, not financial advice</li>
+                        <li><strong>No Guarantees:</strong> Market analysis is not a guarantee of future performance</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Request Analysis Form -->
+        <div class="section request-form">
+            <div class="section-header">
+                <div class="section-title">
+                    <span class="section-icon">📝</span>
+                    Submit Analysis Request
+                </div>
+            </div>
+            
+            <form id="analysisRequestForm">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Ticker Symbol</label>
+                        <input type="text" class="form-input" id="ticker" name="ticker" 
+                               value="SPY" placeholder="SPY" required>
+                        <div class="form-description">SPY provides the most comprehensive analysis</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Days to Expiration (DTE)</label>
+                        <select class="form-input" id="dte" name="dte" required>
+                            <option value="">Loading DTE options...</option>
+                        </select>
+                        <div class="form-description">0-10 = weekdays only, 11+ = Friday expirations</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">&nbsp;</label> <!-- Spacer for alignment -->
+                        <button type="submit" class="btn btn-primary" id="submitBtn">
+                            <span id="submitText">🚀 Request Analysis</span>
+                            <span id="submitSpinner" class="spinner d-none"></span>
+                        </button>
+                        <div class="form-description">&nbsp;</div> <!-- Spacer for alignment -->
+                    </div>
+                </div>
+
+                <div id="validationWarnings" class="alert alert-warning d-none">
+                    <ul id="warningsList"></ul>
+                </div>
+
+                <div id="validationErrors" class="alert alert-danger d-none">
+                    <ul id="errorsList"></ul>
+                </div>
+
+                <div id="submitResult" class="alert d-none">
+                    <div id="resultMessage"></div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Latest Analysis Section -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">
+                    <span class="section-icon">📊</span>
+                    Latest Analysis
+                </div>
+                <a href="/library" class="btn btn-outline">
+                    📚 View Full Library
+                </a>
+            </div>
+            
+            <div id="analyses-container" class="analyses-grid">
+                <!-- Analysis items will be loaded here -->
+            </div>
+            
+            <div id="no-analyses" class="no-analyses d-none">
+                <h4>No analyses available yet</h4>
+                <p>Submit your first analysis request above to get started!</p>
+            </div>
+        </div>
+
+        <!-- Public Requests Log Section -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-title">
+                    <span class="section-icon">📋</span>
+                    Public Requests Log
+                </div>
+                <button id="refreshLogBtn" class="btn btn-outline" onclick="loadRequestsLog()">
+                    🔄 Refresh
+                </button>
+            </div>
+            
+            <div class="info-grid">
+                <!-- Pending Requests -->
+                <div class="info-card">
+                    <h4><span class="icon">⏳</span>Pending Requests (<span id="pendingCount">0</span>)</h4>
+                    <div id="pending-requests">
+                        <!-- Pending requests will be loaded here -->
+                    </div>
+                </div>
+                
+                <!-- Recently Completed -->
+                <div class="info-card">
+                    <h4><span class="icon">✅</span>Recently Completed (<span id="completedCount">0</span>)</h4>
+                    <div id="completed-requests">
+                        <!-- Completed requests will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            
+            <div id="no-requests" class="no-analyses d-none">
+                <h4>No requests found</h4>
+                <p>Submit the first analysis request to see the public log!</p>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Global formatDate function
+        function formatDate(dateString) {
+            if (!dateString) return 'Unknown date';
+            
+            try {
+                const date = new Date(dateString);
+                return date.toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            } catch (error) {
+                return 'Invalid date';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('analysisRequestForm');
+            const submitBtn = document.getElementById('submitBtn');
+            const submitText = document.getElementById('submitText');
+            const submitSpinner = document.getElementById('submitSpinner');
+            const resultDiv = document.getElementById('submitResult');
+            const resultMessage = document.getElementById('resultMessage');
+            const warningsDiv = document.getElementById('validationWarnings');
+            const warningsList = document.getElementById('warningsList');
+            const errorsDiv = document.getElementById('validationErrors');
+            const errorsList = document.getElementById('errorsList');
+
+            // Load latest analyses on page load
+            loadLatestAnalyses();
+            
+            // Load DTE options on page load
+            loadDTEOptions();
+            
+            // Load requests log on page load
+            loadRequestsLog();
+
+            // Handle form submission
+            form.addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                // Reset UI
+                hideAlerts();
+                setSubmitState(true);
+
+                const formData = new FormData(form);
+                const data = {
+                    ticker: formData.get('ticker').toUpperCase(),
+                    dte: parseInt(formData.get('dte'))
+                };
+
+                try {
+                    const response = await fetch('/api/submit-analysis-request', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(data)
+                    });
+
+                    const result = await response.json();
+
+                    // Show warnings if any
+                    if (result.warnings && result.warnings.length > 0) {
+                        showWarnings(result.warnings);
+                    }
+
+                    // Show validation errors if any
+                    if (result.validation_errors && result.validation_errors.length > 0) {
+                        showErrors(result.validation_errors);
+                    }
+
+                    // Show result message
+                    showResult(result.message, result.success, result.request_id);
+
+                    // If successful, reload analyses after a short delay
+                    if (result.success) {
+                        setTimeout(() => {
+                            loadLatestAnalyses();
+                            loadRequestsLog();  // Also refresh the requests log
+                        }, 2000);
+                    }
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    showResult('Network error. Please try again.', false);
+                } finally {
+                    setSubmitState(false);
+                }
+            });
+
+            function hideAlerts() {
+                warningsDiv.classList.add('d-none');
+                errorsDiv.classList.add('d-none');
+                resultDiv.classList.add('d-none');
+            }
+
+            function setSubmitState(loading) {
+                submitBtn.disabled = loading;
+                if (loading) {
+                    submitText.classList.add('d-none');
+                    submitSpinner.classList.remove('d-none');
+                } else {
+                    submitText.classList.remove('d-none');
+                    submitSpinner.classList.add('d-none');
+                }
+            }
+
+            function showWarnings(warnings) {
+                warningsList.innerHTML = warnings.map(w => `<li>${w}</li>`).join('');
+                warningsDiv.classList.remove('d-none');
+            }
+
+            function showErrors(errors) {
+                errorsList.innerHTML = errors.map(e => `<li>${e}</li>`).join('');
+                errorsDiv.classList.remove('d-none');
+            }
+
+            function showResult(message, success, requestId = null) {
+                if (success && requestId) {
+                    resultMessage.innerHTML = `
+                        <strong>✅ Success!</strong><br>
+                        ${message}<br>
+                        <small style="color: #6c757d;">Request ID: <code>${requestId}</code></small>
+                    `;
+                } else {
+                    resultMessage.textContent = message;
+                }
+                
+                resultDiv.className = 'alert ' + (success ? 'alert-success' : 'alert-danger');
+                resultDiv.classList.remove('d-none');
+            }
+
+            async function loadLatestAnalyses() {
+                try {
+                    const response = await fetch('/api/grok-history?limit=6');
+                    const data = await response.json();
+                    
+                    if (data.success && data.analyses && data.analyses.length > 0) {
+                        displayAnalyses(data.analyses);
+                    } else {
+                        displayNoAnalyses();
+                    }
+                } catch (error) {
+                    console.error('Error loading analyses:', error);
+                    displayNoAnalyses();
+                }
+            }
+
+            function displayAnalyses(analyses) {
+                const container = document.getElementById('analyses-container');
+                const noAnalysesDiv = document.getElementById('no-analyses');
+                
+                if (analyses.length === 0) {
+                    displayNoAnalyses();
+                    return;
+                }
+
+                noAnalysesDiv.classList.add('d-none');
+                container.innerHTML = analyses.map(analysis => `
+                    <div class="analysis-card" onclick="viewAnalysis('${analysis.analysis_id}')">
+                        <div class="analysis-header">
+                            <div class="analysis-ticker">${analysis.ticker}</div>
+                            <div class="analysis-dte">${analysis.dte} DTE</div>
+                        </div>
+                        
+                        <div class="analysis-meta">
+                            <div class="meta-item">
+                                <div class="meta-label">Underlying Price</div>
+                                <div class="meta-value">$${parseFloat(analysis.underlying_price || 0).toFixed(2)}</div>
+                            </div>
+                            <div class="meta-item">
+                                <div class="meta-label">Confidence</div>
+                                <div class="meta-value">${analysis.confidence_score || 'N/A'}%</div>
+                            </div>
+                        </div>
+                        
+                        ${analysis.recommended_strategy ? `
+                        <div class="strategy-highlight">
+                            <div class="strategy-label">Recommended Strategy</div>
+                            <div class="strategy-text">${analysis.recommended_strategy}</div>
+                        </div>
+                        ` : ''}
+                        
+                        <div class="analysis-date">
+                            ${formatDate(analysis.analysis_date)}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            function displayNoAnalyses() {
+                const container = document.getElementById('analyses-container');
+                const noAnalysesDiv = document.getElementById('no-analyses');
+                
+                container.innerHTML = '';
+                noAnalysesDiv.classList.remove('d-none');
+            }
+
+            function viewAnalysis(analysisId) {
+                // Redirect to library page with the specific analysis
+                window.location.href = '/library#' + analysisId;
+            }
+
+            async function loadDTEOptions() {
+                const dteSelect = document.getElementById('dte');
+                
+                try {
+                    console.log('🔄 Loading DTE options...');
+                    
+                    const response = await fetch('/api/dte-options');
+                    const data = await response.json();
+                    
+                    if (data.success && data.dte_options) {
+                        // Clear loading option
+                        dteSelect.innerHTML = '';
+                        
+                        // Add default option
+                        const defaultOption = document.createElement('option');
+                        defaultOption.value = '';
+                        defaultOption.textContent = 'Select DTE...';
+                        dteSelect.appendChild(defaultOption);
+                        
+                        // Add DTE options
+                        data.dte_options.forEach((option, index) => {
+                            const optionElement = document.createElement('option');
+                            optionElement.value = option.dte;
+                            optionElement.textContent = option.display;
+                            
+                            // Set default selection to 5 DTE if available
+                            if (option.dte === 5) {
+                                optionElement.selected = true;
+                            }
+                            
+                            dteSelect.appendChild(optionElement);
+                        });
+                        
+                        console.log(`✅ Loaded ${data.dte_options.length} DTE options`);
+                    } else {
+                        throw new Error(data.error || 'Failed to load DTE options');
+                    }
+                } catch (error) {
+                    console.error('❌ Error loading DTE options:', error);
+                    
+                    // Fallback to basic options
+                    dteSelect.innerHTML = `
+                        <option value="">Select DTE...</option>
+                        <option value="0">0 DTE (Same Day)</option>
+                        <option value="1">1 DTE</option>
+                        <option value="2">2 DTE</option>
+                        <option value="3">3 DTE</option>
+                        <option value="5" selected>5 DTE</option>
+                        <option value="7">7 DTE</option>
+                        <option value="14">14 DTE</option>
+                        <option value="21">21 DTE</option>
+                        <option value="30">30 DTE</option>
+                    `;
+                }
+            }
+        });
+
+        // Load requests log function
+        async function loadRequestsLog() {
+            try {
+                const response = await fetch('/api/public-requests-log');
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayRequestsLog(data);
+                } else {
+                    displayEmptyRequestsLog();
+                }
+            } catch (error) {
+                console.error('Error loading requests log:', error);
+                displayEmptyRequestsLog();
+            }
+        }
+
+        function displayRequestsLog(data) {
+            const pendingContainer = document.getElementById('pending-requests');
+            const completedContainer = document.getElementById('completed-requests');
+            const pendingCount = document.getElementById('pendingCount');
+            const completedCount = document.getElementById('completedCount');
+            const noRequestsDiv = document.getElementById('no-requests');
+            
+            // Update counts
+            pendingCount.textContent = data.stats.total_pending;
+            completedCount.textContent = data.stats.total_completed;
+            
+            // Display pending requests
+            if (data.pending_requests && data.pending_requests.length > 0) {
+                pendingContainer.innerHTML = data.pending_requests.map(request => `
+                    <div class="request-item">
+                        <div class="request-header">
+                            <span class="request-ticker">${request.ticker}</span>
+                            <span class="request-dte">${request.dte} DTE</span>
+                        </div>
+                        <div class="request-meta">
+                            <span class="request-id">${request.request_id.substring(0, 8)}...</span>
+                            <span class="pending-status">PENDING</span>
+                        </div>
+                        <div class="request-date">
+                            Requested: ${formatDate(request.request_date)}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                pendingContainer.innerHTML = '<div class="empty-requests">No pending requests</div>';
+            }
+            
+            // Display completed requests
+            if (data.completed_requests && data.completed_requests.length > 0) {
+                completedContainer.innerHTML = data.completed_requests.map(request => `
+                    <div class="request-item">
+                        <div class="request-header">
+                            <span class="request-ticker">${request.ticker}</span>
+                            <span class="request-dte">${request.dte} DTE</span>
+                        </div>
+                        <div class="request-meta">
+                            <span class="request-id">${request.request_id.substring(0, 8)}...</span>
+                            <span class="completed-status">COMPLETED</span>
+                        </div>
+                        <div class="request-date">
+                            ${request.processed_at ? `Completed: ${formatDate(request.processed_at)}` : `Requested: ${formatDate(request.request_date)}`}
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                completedContainer.innerHTML = '<div class="empty-requests">No completed requests</div>';
+            }
+            
+            // Hide "no requests" message
+            noRequestsDiv.classList.add('d-none');
+        }
+
+        function displayEmptyRequestsLog() {
+            const pendingContainer = document.getElementById('pending-requests');
+            const completedContainer = document.getElementById('completed-requests');
+            const pendingCount = document.getElementById('pendingCount');
+            const completedCount = document.getElementById('completedCount');
+            const noRequestsDiv = document.getElementById('no-requests');
+            
+            // Reset counts
+            pendingCount.textContent = '0';
+            completedCount.textContent = '0';
+            
+            // Clear containers
+            pendingContainer.innerHTML = '<div class="empty-requests">No pending requests</div>';
+            completedContainer.innerHTML = '<div class="empty-requests">No completed requests</div>';
+            
+            // Show "no requests" message
+            noRequestsDiv.classList.remove('d-none');
+        }
+    </script>
+</body>
+</html>

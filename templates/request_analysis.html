@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+
+{% block title %}Request Analysis - SimpleZero{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- Header Section -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-4 text-center mb-3">🔍 Request Trade Analysis</h1>
+            <p class="lead text-center text-muted">
+                Get AI-powered options trading analysis for your ticker and expiration date.
+                Our analysis includes market outlook, strategy recommendations, and risk assessment.
+            </p>
+        </div>
+    </div>
+
+    <!-- Request Form -->
+    <div class="row justify-content-center mb-5">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">📝 Submit Analysis Request</h4>
+                </div>
+                <div class="card-body">
+                    <form id="analysisRequestForm">
+                        <div class="mb-3">
+                            <label for="ticker" class="form-label">Ticker Symbol</label>
+                            <input type="text" class="form-control" id="ticker" name="ticker" 
+                                   value="SPY" placeholder="e.g., SPY, QQQ, AAPL" required>
+                            <div class="form-text">SPY provides the most comprehensive analysis</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="dte" class="form-label">Days to Expiration (DTE)</label>
+                            <input type="number" class="form-control" id="dte" name="dte" 
+                                   min="0" max="365" value="5" required>
+                            <div class="form-text">0 = same day expiration, 1-60 = optimal range</div>
+                        </div>
+
+                        <div id="validationWarnings" class="alert alert-warning d-none">
+                            <ul class="mb-0" id="warningsList"></ul>
+                        </div>
+
+                        <div id="validationErrors" class="alert alert-danger d-none">
+                            <ul class="mb-0" id="errorsList"></ul>
+                        </div>
+
+                        <div id="submitResult" class="alert d-none">
+                            <div id="resultMessage"></div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
+                            <span id="submitText">🚀 Request Analysis</span>
+                            <span id="submitSpinner" class="spinner-border spinner-border-sm d-none" role="status"></span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Analyses Section -->
+    {% if recent_analyses %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <h3 class="mb-3">📊 Recent Public Analyses</h3>
+            <div class="row">
+                {% for analysis in recent_analyses %}
+                <div class="col-md-6 col-lg-4 mb-3">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ analysis.ticker }} - {{ analysis.dte }} DTE</h5>
+                            <p class="card-text text-muted small">
+                                Requested: {{ analysis.request_date }}
+                            </p>
+                            <span class="badge bg-success">Completed</span>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Information Section -->
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">📋 How It Works</h5>
+                </div>
+                <div class="card-body">
+                    <ol>
+                        <li><strong>Submit Request:</strong> Choose your ticker and DTE</li>
+                        <li><strong>Duplicate Check:</strong> We prevent duplicate requests within 2 hours</li>
+                        <li><strong>Analysis Queue:</strong> Your request joins our processing queue</li>
+                        <li><strong>AI Analysis:</strong> Our system generates comprehensive market analysis</li>
+                        <li><strong>Results:</strong> Analysis becomes available in our public library</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">⚠️ Important Notes</h5>
+                </div>
+                <div class="card-body">
+                    <ul>
+                        <li><strong>No Duplicates:</strong> One request per ticker/DTE combination every 2 hours</li>
+                        <li><strong>SPY Focus:</strong> SPY analyses are most comprehensive and reliable</li>
+                        <li><strong>Processing Time:</strong> Analysis may take a few minutes to complete</li>
+                        <li><strong>Educational Only:</strong> This is for educational purposes, not financial advice</li>
+                        <li><strong>No Guarantees:</strong> Market analysis is not a guarantee of future performance</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('analysisRequestForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const submitText = document.getElementById('submitText');
+    const submitSpinner = document.getElementById('submitSpinner');
+    const resultDiv = document.getElementById('submitResult');
+    const resultMessage = document.getElementById('resultMessage');
+    const warningsDiv = document.getElementById('validationWarnings');
+    const warningsList = document.getElementById('warningsList');
+    const errorsDiv = document.getElementById('validationErrors');
+    const errorsList = document.getElementById('errorsList');
+
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        // Reset UI
+        resultDiv.classList.add('d-none');
+        warningsDiv.classList.add('d-none');
+        errorsDiv.classList.add('d-none');
+        submitBtn.disabled = true;
+        submitText.classList.add('d-none');
+        submitSpinner.classList.remove('d-none');
+
+        const formData = new FormData(form);
+        const data = {
+            ticker: formData.get('ticker').toUpperCase(),
+            dte: parseInt(formData.get('dte'))
+        };
+
+        try {
+            const response = await fetch('/api/submit-analysis-request', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            });
+
+            const result = await response.json();
+
+            // Show warnings if any
+            if (result.warnings && result.warnings.length > 0) {
+                warningsList.innerHTML = result.warnings.map(w => `<li>${w}</li>`).join('');
+                warningsDiv.classList.remove('d-none');
+            }
+
+            // Show validation errors if any
+            if (result.validation_errors && result.validation_errors.length > 0) {
+                errorsList.innerHTML = result.validation_errors.map(e => `<li>${e}</li>`).join('');
+                errorsDiv.classList.remove('d-none');
+            }
+
+            // Show result message
+            resultMessage.textContent = result.message;
+            resultDiv.className = 'alert ' + (result.success ? 'alert-success' : 'alert-danger');
+            resultDiv.classList.remove('d-none');
+
+            // If successful, show request ID prominently
+            if (result.success && result.request_id) {
+                resultMessage.innerHTML = `
+                    <strong>✅ Success!</strong><br>
+                    ${result.message}<br>
+                    <small>Request ID: <code>${result.request_id}</code></small>
+                `;
+                
+                // Reset form on success
+                form.reset();
+                document.getElementById('ticker').value = 'SPY';
+                document.getElementById('dte').value = '5';
+            }
+
+        } catch (error) {
+            console.error('Error:', error);
+            resultMessage.textContent = 'Network error. Please try again.';
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.classList.remove('d-none');
+        } finally {
+            // Reset button state
+            submitBtn.disabled = false;
+            submitText.classList.remove('d-none');
+            submitSpinner.classList.add('d-none');
+        }
+    });
+});
+</script>
+{% endblock %}

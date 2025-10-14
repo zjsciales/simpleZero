@@ -33,44 +33,11 @@
             margin: 0 auto;
         }
 
-        .nav-section {
-            display: flex;
-            align-items: center;
-            gap: 30px;
-        }
-
         .logo {
             display: flex;
             align-items: center;
             font-size: 24px;
             font-weight: 600;
-        }
-
-        .nav-tabs {
-            display: flex;
-            gap: 15px;
-        }
-
-        .nav-tab {
-            padding: 8px 16px;
-            border-radius: 6px;
-            text-decoration: none;
-            color: rgba(255, 255, 255, 0.8);
-            font-weight: 500;
-            transition: all 0.3s ease;
-            border: 1px solid transparent;
-        }
-
-        .nav-tab:hover {
-            color: white;
-            background: rgba(255, 255, 255, 0.1);
-            border-color: rgba(255, 255, 255, 0.2);
-        }
-
-        .nav-tab.active {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border-color: rgba(255, 255, 255, 0.3);
         }
 
         .auth-section {
@@ -131,18 +98,10 @@
     <div class="header">
         <div class="header-content">
             <div class="logo">{% block page_title %}🎯 SPY Trading System{% endblock %}</div>
-            <div class="nav-section">
-                <div class="nav-tabs">
-                    <a href="/dashboard" class="nav-tab{% if request.endpoint == 'dashboard' %} active{% endif %}">🏠 Dashboard</a>
-                    <a href="/analyze_market" class="nav-tab{% if request.endpoint == 'analyze_market' %} active{% endif %}">🤖 Market Analysis</a>
-                    <a href="/trade" class="nav-tab{% if request.endpoint == 'trade_page' %} active{% endif %}">🎯 Trade</a>
-                    <a href="/debug" class="nav-tab{% if request.endpoint == 'debug_page' %} active{% endif %}">🔧 Debug</a>
-                </div>
-                <div class="auth-section">
-                    <span id="authStatus" class="auth-status"></span>
-                    <button id="loginBtn" class="auth-btn login-btn" onclick="login()" style="display: none;">🔑 Login</button>
-                    <button id="logoutBtn" class="auth-btn logout-btn" onclick="logout()" style="display: none;">🚪 Logout</button>
-                </div>
+            <div class="auth-section">
+                <span id="authStatus" class="auth-status"></span>
+                <button id="loginBtn" class="auth-btn login-btn" onclick="login()" style="display: none;">🔑 Login</button>
+                <button id="logoutBtn" class="auth-btn logout-btn" onclick="logout()" style="display: none;">🚪 Logout</button>
             </div>
         </div>
     </div>

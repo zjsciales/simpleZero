@@ -104,14 +104,18 @@ def health_check():
 
 @app.route('/')
 def home():
-    """Home page - redirect to login if not authenticated, dashboard if authenticated"""
+    """Home page - Grok Analysis Library with integrated scoreboard"""
     token = session.get('access_token')
-    if token:
-        return redirect('/dashboard')
-    else:
-        return render_template('login.html', 
-                             environment=config.ENVIRONMENT_NAME,
-                             oauth_base_url=config.TT_OAUTH_BASE_URL)
+    authenticated = bool(token)
+    
+    # Set token if authenticated
+    if authenticated:
+        set_access_token(token)
+    
+    return render_template('home.html',  # We'll create this new template
+                         environment=config.ENVIRONMENT_NAME,
+                         authenticated=authenticated,
+                         config=config)
 
 @app.route('/dashboard')
 def dashboard():
@@ -129,15 +133,8 @@ def dashboard():
 
 @app.route('/library')
 def library():
-    """Grok analysis library page - requires authentication"""
-    token = session.get('access_token')
-    if not token:
-        return redirect('/')
-    
-    return render_template('library.html',
-                         environment=config.ENVIRONMENT_NAME,
-                         authenticated=True,
-                         config=config)
+    """Legacy library route - redirect to home"""
+    return redirect('/')
 
 @app.route('/login')
 def login():
@@ -563,6 +560,64 @@ def api_available_dtes():
             
     except Exception as e:
         print(f"💥 Exception getting available DTEs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/dte-options')
+def api_dte_options():
+    """API endpoint to get smart DTE options: 0-10 daily, then Fridays"""
+    from datetime import datetime, timedelta
+    
+    try:
+        print("🔍 Generating smart DTE options")
+        
+        # Start with today
+        today = datetime.now()
+        dte_options = []
+        
+        # Add 0-10 DTE (daily options) - skip weekends
+        for i in range(11):  # 0 through 10
+            target_date = today + timedelta(days=i)
+            # Skip weekends (Saturday = 5, Sunday = 6)
+            if target_date.weekday() in [5, 6]:  # Skip Saturday and Sunday
+                continue
+                
+            dte_options.append({
+                'dte': i,
+                'date': target_date.strftime('%Y-%m-%d'),
+                'display': f"{i} DTE" + (" (Same Day)" if i == 0 else f" ({target_date.strftime('%a %m/%d')})"),
+                'day_of_week': target_date.strftime('%A'),
+                'is_friday': target_date.weekday() == 4
+            })
+        
+        # Add Friday expirations for longer DTEs
+        current_date = today + timedelta(days=11)  # Start from day 11
+        fridays_found = 0
+        max_fridays = 8  # Limit to reasonable number
+        max_days_search = 90  # Don't search beyond 90 days
+        
+        while fridays_found < max_fridays and (current_date - today).days <= max_days_search:
+            if current_date.weekday() == 4:  # Friday = 4 in Python (Monday = 0)
+                dte = (current_date - today).days
+                dte_options.append({
+                    'dte': dte,
+                    'date': current_date.strftime('%Y-%m-%d'),
+                    'display': f"{dte} DTE (Fri {current_date.strftime('%m/%d')})",
+                    'day_of_week': 'Friday',
+                    'is_friday': True
+                })
+                fridays_found += 1
+            current_date += timedelta(days=1)
+        
+        print(f"✅ Generated {len(dte_options)} DTE options (0-10 daily + {fridays_found} Fridays)")
+        
+        return jsonify({
+            'success': True,
+            'dte_options': dte_options,
+            'count': len(dte_options)
+        })
+            
+    except Exception as e:
+        print(f"💥 Exception generating DTE options: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/trading-range')
@@ -1831,16 +1886,30 @@ def get_grok_history():
         # Format the results for the frontend
         formatted_analyses = []
         for row in results:
+            # Handle date fields - they might be strings or datetime objects
+            analysis_date = row.get('analysis_date')
+            if analysis_date and hasattr(analysis_date, 'isoformat'):
+                analysis_date = analysis_date.isoformat()
+            elif analysis_date:
+                analysis_date = str(analysis_date)
+            
+            created_at = row.get('created_at')
+            if created_at and hasattr(created_at, 'isoformat'):
+                created_at = created_at.isoformat()
+            elif created_at:
+                created_at = str(created_at)
+            
             analysis = {
                 "analysis_id": row.get('analysis_id'),
+                "symbol": row.get('ticker'),  # Use 'symbol' to match frontend expectations
                 "ticker": row.get('ticker'),
                 "dte": row.get('dte'),
-                "analysis_date": row.get('analysis_date').isoformat() if row.get('analysis_date') else None,
+                "analysis_date": analysis_date,
                 "underlying_price": float(row.get('underlying_price', 0)),
                 "confidence_score": row.get('confidence_score'),
                 "recommended_strategy": row.get('recommended_strategy'),
                 "market_outlook": row.get('market_outlook'),
-                "created_at": row.get('created_at').isoformat() if row.get('created_at') else None,
+                "created_at": created_at,
                 "has_trade": bool(row.get('trade_id')),
                 "trade_details": None
             }
@@ -1863,7 +1932,8 @@ def get_grok_history():
             formatted_analyses.append(analysis)
         
         return jsonify({
-            "analyses": formatted_analyses,
+            "success": True,
+            "data": formatted_analyses,
             "total_count": len(formatted_analyses),
             "message": f"Found {len(formatted_analyses)} Grok analyses"
         })
@@ -1975,11 +2045,307 @@ def get_grok_analysis_detail(analysis_id):
                 "trade_created_at": row.get('trade_created_at').isoformat() if row.get('trade_created_at') else None
             }
         
-        return jsonify(analysis_detail)
+        return jsonify({
+            "success": True,
+            "data": analysis_detail
+        })
         
     except Exception as e:
         logger.error(f"❌ Error fetching analysis detail for {analysis_id}: {e}")
         return jsonify({"error": "Failed to fetch analysis details", "details": str(e)}), 500
+
+@app.route('/api/performance')
+def get_performance():
+    """Get performance metrics for the scoreboard"""
+    try:
+        from unified_database import get_recent_performance
+        
+        performance = get_recent_performance()
+        return jsonify({
+            "success": True,
+            "data": performance
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching performance metrics: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to fetch performance metrics",
+            "details": str(e)
+        }), 500
+
+@app.route('/api/trade-suggestions')
+def get_trade_suggestions():
+    """Get recent trade suggestions from Grok analyses"""
+    try:
+        from unified_database import db_manager
+        
+        # Get recent trade suggestions (analyses that have associated trades)
+        query = """
+        SELECT 
+            ga.analysis_id,
+            ga.ticker as symbol,
+            ga.recommended_strategy,
+            ga.confidence_score,
+            ga.market_outlook,
+            ga.key_levels,
+            ga.created_at,
+            t.status,
+            t.strategy_type,
+            t.short_strike,
+            t.long_strike,
+            t.entry_premium_received,
+            t.max_loss,
+            t.prob_prof
+        FROM grok_analyses ga
+        INNER JOIN trades t ON ga.analysis_id = t.analysis_id
+        ORDER BY ga.created_at DESC
+        LIMIT 25
+        """
+        
+        results = db_manager.execute_query(query)
+        
+        if not results:
+            return jsonify({"success": True, "data": []})
+        
+        # Format the results
+        suggestions = []
+        for row in results:
+            # Handle date formatting
+            created_at = row.get('created_at')
+            if created_at and hasattr(created_at, 'isoformat'):
+                created_at = created_at.isoformat()
+            elif created_at:
+                created_at = str(created_at)
+            
+            suggestion = {
+                "analysis_id": row.get('analysis_id'),
+                "symbol": row.get('symbol'),
+                "recommended_strategy": row.get('recommended_strategy'),
+                "confidence_score": row.get('confidence_score'),
+                "market_outlook": row.get('market_outlook'),
+                "key_levels": row.get('key_levels'),
+                "created_at": created_at,
+                "status": row.get('status'),
+                "strategy_type": row.get('strategy_type'),
+                "short_strike": row.get('short_strike'),
+                "long_strike": row.get('long_strike'),
+                "entry_premium_received": row.get('entry_premium_received'),
+                "max_loss": row.get('max_loss'),
+                "prob_prof": row.get('prob_prof')
+            }
+            suggestions.append(suggestion)
+        
+        return jsonify({
+            "success": True,
+            "data": suggestions
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching trade suggestions: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to fetch trade suggestions",
+            "details": str(e)
+        }), 500
+
+# ============================================================================
+# PUBLIC ANALYSIS REQUEST ROUTES (Phase 2)
+# ============================================================================
+
+@app.route('/request-analysis')
+def request_analysis_page():
+    """Public page for requesting trade analysis"""
+    try:
+        # Get recent public analyses to show users what's available
+        import unified_database
+        recent_requests = unified_database.get_recent_requests(hours=24, limit=10)
+        
+        # Filter to show only completed analyses
+        completed_analyses = [req for req in recent_requests if req.get('status') == 'COMPLETED' and req.get('analysis_id')]
+        
+        return render_template('request_analysis.html', 
+                             recent_analyses=completed_analyses[:5])  # Show only 5 most recent
+    except Exception as e:
+        logger.error(f"❌ Error loading request analysis page: {e}")
+        return render_template('request_analysis.html', recent_analyses=[])
+
+@app.route('/api/submit-analysis-request', methods=['POST'])
+def submit_analysis_request():
+    """API endpoint to submit new analysis requests"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'message': 'No data provided'
+            }), 400
+        
+        ticker = data.get('ticker', 'SPY').upper()
+        dte = data.get('dte', 0)
+        
+        # Validate inputs
+        if not isinstance(dte, int):
+            try:
+                dte = int(dte)
+            except (ValueError, TypeError):
+                return jsonify({
+                    'success': False,
+                    'message': 'DTE must be a valid number'
+                }), 400
+        
+        # Process the request using our Phase 1B logic
+        import unified_database
+        result = unified_database.process_analysis_request(ticker, dte)
+        
+        # Return appropriate HTTP status code
+        status_code = 200 if result['success'] else 409 if result['duplicate'] else 400
+        
+        return jsonify(result), status_code
+        
+    except Exception as e:
+        logger.error(f"❌ Error submitting analysis request: {e}")
+        return jsonify({
+            'success': False,
+            'message': 'An error occurred while processing your request. Please try again.'
+        }), 500
+
+@app.route('/api/request-status/<request_id>')
+def get_request_status(request_id):
+    """API endpoint to check the status of a submitted request"""
+    try:
+        import unified_database
+        
+        # Get request details
+        recent_requests = unified_database.get_recent_requests(hours=48, limit=100)
+        request_info = next((req for req in recent_requests if req['request_id'] == request_id), None)
+        
+        if not request_info:
+            return jsonify({
+                'found': False,
+                'message': 'Request not found or expired'
+            }), 404
+        
+        return jsonify({
+            'found': True,
+            'request_id': request_info['request_id'],
+            'ticker': request_info['ticker'],
+            'dte': request_info['dte'],
+            'status': request_info['status'],
+            'request_date': request_info['request_date'],
+            'analysis_id': request_info.get('analysis_id'),
+            'processed_at': request_info.get('processed_at')
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error checking request status: {e}")
+        return jsonify({
+            'found': False,
+            'message': 'Error checking request status'
+        }), 500
+
+@app.route('/api/public-requests-log')
+def get_public_requests_log():
+    """API endpoint to get public log of analysis requests (pending and completed)"""
+    try:
+        import unified_database
+        
+        # Get recent requests
+        recent_requests = unified_database.get_recent_requests(hours=168, limit=100)  # Last week, up to 100 requests
+        
+        # Separate by status
+        pending_requests = []
+        completed_requests = []
+        
+        for req in recent_requests:
+            request_data = {
+                'request_id': req['request_id'],
+                'ticker': req['ticker'],
+                'dte': req['dte'],
+                'request_date': req['request_date'],
+                'status': req['status'],
+                'processed_at': req.get('processed_at')
+            }
+            
+            if req.get('status') == 'PENDING':
+                pending_requests.append(request_data)
+            elif req.get('status') == 'COMPLETED':
+                completed_requests.append(request_data)
+        
+        # Sort by request date (newest first)
+        pending_requests.sort(key=lambda x: x['request_date'], reverse=True)
+        completed_requests.sort(key=lambda x: x['processed_at'] or x['request_date'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'pending_requests': pending_requests[:20],  # Last 20 pending
+            'completed_requests': completed_requests[:30],  # Last 30 completed
+            'stats': {
+                'total_pending': len(pending_requests),
+                'total_completed': len(completed_requests),
+                'last_updated': datetime.now().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching public requests log: {e}")
+        return jsonify({
+            'success': False,
+            'pending_requests': [],
+            'completed_requests': [],
+            'message': 'Error loading requests log'
+        }), 500
+
+@app.route('/api/public-analyses')
+def get_public_analyses():
+    """API endpoint to get recent completed analyses for public viewing"""
+    try:
+        import unified_database
+        
+        # Get recent requests that have been completed
+        recent_requests = unified_database.get_recent_requests(hours=72, limit=50)
+        
+        # Filter to completed analyses only
+        completed_analyses = []
+        for req in recent_requests:
+            if req.get('status') == 'COMPLETED' and req.get('analysis_id'):
+                # Try to get the actual analysis data
+                try:
+                    analysis = unified_database.get_grok_history(limit=100)
+                    matching_analysis = next((a for a in analysis if a.get('analysis_id') == req['analysis_id']), None)
+                    
+                    if matching_analysis:
+                        completed_analyses.append({
+                            'request_id': req['request_id'],
+                            'ticker': req['ticker'],
+                            'dte': req['dte'],
+                            'request_date': req['request_date'],
+                            'analysis': {
+                                'analysis_id': matching_analysis['analysis_id'],
+                                'underlying_price': matching_analysis.get('underlying_price'),
+                                'confidence_score': matching_analysis.get('confidence_score'),
+                                'recommended_strategy': matching_analysis.get('recommended_strategy'),
+                                'market_outlook': matching_analysis.get('market_outlook'),
+                                'analysis_date': matching_analysis.get('analysis_date')
+                            }
+                        })
+                except Exception as analysis_error:
+                    logger.warning(f"⚠️ Could not load analysis for request {req['request_id']}: {analysis_error}")
+                    continue
+        
+        return jsonify({
+            'success': True,
+            'analyses': completed_analyses[:20]  # Limit to 20 most recent
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching public analyses: {e}")
+        return jsonify({
+            'success': False,
+            'analyses': [],
+            'message': 'Error loading analyses'
+        }), 500
 
 if __name__ == '__main__':
     # Initialize automated trading system (optional)
