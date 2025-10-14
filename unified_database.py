@@ -90,16 +90,44 @@ class DatabaseManager:
                 cursor.execute("""
                     SELECT table_name FROM information_schema.tables 
                     WHERE table_schema = 'public' 
-                    AND table_name IN ('trades', 'grok_analyses', 'market_snapshots')
+                    AND table_name IN ('trades', 'grok_analyses', 'market_snapshots', 'requests')
                     ORDER BY table_name;
                 """)
                 tables = [row[0] for row in cursor.fetchall()]
                 logger.info(f"✅ Railway tables verified: {tables}")
                 
+                # Check if requests table exists, if not create it
+                if 'requests' not in tables:
+                    logger.info("🔧 Creating missing requests table...")
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS requests (
+                            id SERIAL PRIMARY KEY,
+                            request_id VARCHAR(100) UNIQUE NOT NULL,
+                            ticker VARCHAR(10) NOT NULL DEFAULT 'SPY',
+                            dte INTEGER NOT NULL,
+                            request_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                            analysis_id VARCHAR(100) NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            processed_at TIMESTAMP NULL
+                        );
+                    """)
+                    cursor.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_requests_ticker_dte ON requests(ticker, dte);
+                    """)
+                    cursor.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+                    """)
+                    cursor.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_requests_date ON requests(request_date);
+                    """)
+                    self._postgres_conn.commit()
+                    logger.info("✅ Requests table created successfully")
+                
                 if len(tables) >= 3:
                     logger.info("✅ All critical tables found - database ready")
                 else:
-                    logger.warning(f"⚠️ Missing tables! Expected: ['trades', 'grok_analyses', 'market_snapshots'], Found: {tables}")
+                    logger.warning(f"⚠️ Missing tables! Expected: ['trades', 'grok_analyses', 'market_snapshots', 'requests'], Found: {tables}")
                     
         except Exception as e:
             logger.error(f"❌ Table verification failed: {e}")
@@ -1003,6 +1031,27 @@ def get_recent_grok_analyses(limit: int = 10) -> List[Dict]:
     except Exception as e:
         logger.error(f"❌ Failed to get Grok analyses: {e}")
         return []
+
+def get_featured_analysis() -> Optional[Dict]:
+    """Get the most recent featured analysis for homepage"""
+    try:
+        query = """
+        SELECT 
+            analysis_id, ticker, dte, analysis_date, response_text,
+            underlying_price, recommended_strategy, confidence_score,
+            public_title, executed_trade_id
+        FROM grok_analyses 
+        WHERE is_featured = true
+        ORDER BY analysis_date DESC 
+        LIMIT 1
+        """
+        
+        result = db_manager.execute_query(query, ())
+        return result[0] if result else None
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get featured analysis: {e}")
+        return None
 
 def cleanup_completed_requests(days_old: int = 7) -> Dict[str, Any]:
     """Clean up completed requests older than specified days"""

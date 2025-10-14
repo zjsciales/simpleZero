@@ -75,6 +75,19 @@ CREATE TABLE IF NOT EXISTS performance_metrics (
     UNIQUE(period_type, period_start, period_end)
 );
 
+-- Requests table for public analysis requests
+CREATE TABLE IF NOT EXISTS requests (
+    id SERIAL PRIMARY KEY,
+    request_id VARCHAR(100) UNIQUE NOT NULL,
+    ticker VARCHAR(10) NOT NULL DEFAULT 'SPY',
+    dte INTEGER NOT NULL,
+    request_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    analysis_id VARCHAR(100) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP NULL
+);
+
 -- Market snapshots for historical data
 CREATE TABLE IF NOT EXISTS market_snapshots (
     id SERIAL PRIMARY KEY,
@@ -95,6 +108,9 @@ CREATE INDEX IF NOT EXISTS idx_trades_ticker_dte ON trades(ticker, dte);
 CREATE INDEX IF NOT EXISTS idx_trades_entry_date ON trades(entry_date);
 CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
 CREATE INDEX IF NOT EXISTS idx_grok_analyses_ticker_date ON grok_analyses(ticker, analysis_date);
+CREATE INDEX IF NOT EXISTS idx_requests_ticker_dte ON requests(ticker, dte);
+CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+CREATE INDEX IF NOT EXISTS idx_requests_date ON requests(request_date);
 CREATE INDEX IF NOT EXISTS idx_performance_metrics_period ON performance_metrics(period_type, period_start);
 CREATE INDEX IF NOT EXISTS idx_market_snapshots_ticker_date ON market_snapshots(ticker, snapshot_date);
 
