@@ -86,7 +86,46 @@ class DatabaseManager:
     def _verify_postgresql_tables(self):
         """Verify critical tables exist in Railway PostgreSQL"""
         try:
-            with self._postgres_conn.cursor() as cursor:
+            cursor = self._postgres_conn.cursor()
+            
+            # First, get list of existing tables
+            cursor.execute("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('trades', 'grok_analyses', 'market_snapshots', 'requests')
+                ORDER BY table_name;
+            """)
+            tables = [row[0] for row in cursor.fetchall()]
+            logger.info(f"✅ Railway tables verified: {tables}")
+            
+            # Check if requests table exists, if not create it
+            if 'requests' not in tables:
+                logger.info("🔧 Creating missing requests table...")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS requests (
+                        id SERIAL PRIMARY KEY,
+                        request_id VARCHAR(100) UNIQUE NOT NULL,
+                        ticker VARCHAR(10) NOT NULL DEFAULT 'SPY',
+                        dte INTEGER NOT NULL,
+                        request_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                        analysis_id VARCHAR(100) NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        processed_at TIMESTAMP NULL
+                    );
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_requests_ticker_dte ON requests(ticker, dte);
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_requests_date ON requests(request_date);
+                """)
+                self._postgres_conn.commit()
+                logger.info("✅ Requests table created successfully")
+                # Re-fetch tables list to include the newly created table
                 cursor.execute("""
                     SELECT table_name FROM information_schema.tables 
                     WHERE table_schema = 'public' 
@@ -94,43 +133,18 @@ class DatabaseManager:
                     ORDER BY table_name;
                 """)
                 tables = [row[0] for row in cursor.fetchall()]
-                logger.info(f"✅ Railway tables verified: {tables}")
-                
-                # Check if requests table exists, if not create it
-                if 'requests' not in tables:
-                    logger.info("🔧 Creating missing requests table...")
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS requests (
-                            id SERIAL PRIMARY KEY,
-                            request_id VARCHAR(100) UNIQUE NOT NULL,
-                            ticker VARCHAR(10) NOT NULL DEFAULT 'SPY',
-                            dte INTEGER NOT NULL,
-                            request_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                            status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-                            analysis_id VARCHAR(100) NULL,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            processed_at TIMESTAMP NULL
-                        );
-                    """)
-                    cursor.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_requests_ticker_dte ON requests(ticker, dte);
-                    """)
-                    cursor.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
-                    """)
-                    cursor.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_requests_date ON requests(request_date);
-                    """)
-                    self._postgres_conn.commit()
-                    logger.info("✅ Requests table created successfully")
-                
-                if len(tables) >= 3:
-                    logger.info("✅ All critical tables found - database ready")
-                else:
-                    logger.warning(f"⚠️ Missing tables! Expected: ['trades', 'grok_analyses', 'market_snapshots', 'requests'], Found: {tables}")
+            
+            cursor.close()
+            
+            if len(tables) >= 4:  # We expect all 4 tables: trades, grok_analyses, market_snapshots, requests
+                logger.info("✅ All critical tables found - database ready")
+            else:
+                logger.warning(f"⚠️ Missing tables! Expected: ['trades', 'grok_analyses', 'market_snapshots', 'requests'], Found: {tables}")
                     
         except Exception as e:
             logger.error(f"❌ Table verification failed: {e}")
+            import traceback
+            logger.error(f"❌ Table verification traceback: {traceback.format_exc()}")
     
     def _init_sqlite(self):
         """Initialize SQLite connection for development"""
@@ -1051,6 +1065,22 @@ def get_featured_analysis() -> Optional[Dict]:
         
     except Exception as e:
         logger.error(f"❌ Failed to get featured analysis: {e}")
+        return None
+
+def get_latest_market_snapshot() -> Optional[Dict]:
+    """Get the latest market snapshot"""
+    try:
+        query = """
+        SELECT * FROM market_snapshots 
+        ORDER BY snapshot_time DESC 
+        LIMIT 1
+        """
+        
+        result = db_manager.execute_query(query, ())
+        return result[0] if result else None
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to get market snapshot: {e}")
         return None
 
 def cleanup_completed_requests(days_old: int = 7) -> Dict[str, Any]:
