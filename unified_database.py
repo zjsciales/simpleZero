@@ -581,12 +581,9 @@ class DatabaseManager:
                 params = (request_id, ticker, dte, datetime.utcnow())
                 result = self.execute_query(query, params, fetch=False)
             
-            if result is None:  # Success for INSERT with fetch=False
-                logger.info(f"✅ Analysis request stored: {request_id} (DTE: {dte})")
-                return request_id
-            else:
-                logger.error(f"❌ Failed to store analysis request")
-                return None
+            # execute_query with fetch=False returns None on success, raises exception on error
+            logger.info(f"✅ Analysis request stored: {request_id} (DTE: {dte})")
+            return request_id
                 
         except Exception as e:
             logger.error(f"❌ Failed to store analysis request: {e}")

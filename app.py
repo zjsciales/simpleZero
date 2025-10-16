@@ -1,5 +1,5 @@
 # Simple Flask app with SSL and TastyTrade OAuth2
-from flask import Flask, render_template, request, redirect, session, jsonify
+from flask import Flask, render_template, request, redirect, session, jsonify, send_from_directory
 from datetime import datetime
 import os
 import logging
@@ -101,6 +101,11 @@ def health_check():
             'timestamp': datetime.now().isoformat(),
             'error': str(e)
         }), 503
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon to prevent 404 errors"""
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.svg', mimetype='image/svg+xml')
 
 @app.route('/')
 def home():
